@@ -268,11 +268,11 @@ textarea.tt-input {
 /* ---- Trade entry strip ---- */
 .tt-entry {
   border-left: 4px solid #1e60d2;
-  background: #e3edfb;
+  background: #cfe0f8;
 }
 .tt-entry.sell {
   border-left-color: #dc3545;
-  background: #fbe4e2;
+  background: #f8d0cc;
 }
 .tt-entry .tt-card-h {
   background: transparent;
