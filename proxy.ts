@@ -3,6 +3,9 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 /** Every page requires the admin session cookie; signed-out visitors go to /login. */
 export function proxy(request: NextRequest) {
+  // Server Action calls check the session themselves and answer "session
+  // expired"; redirecting them would hand the client an HTML page instead.
+  if (request.headers.has("next-action")) return NextResponse.next();
   const user = verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
   const isLogin = request.nextUrl.pathname.startsWith("/login");
   if (!user && !isLogin) return NextResponse.redirect(new URL("/login", request.url));

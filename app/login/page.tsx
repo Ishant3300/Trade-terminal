@@ -16,7 +16,7 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await login(username, password);
+    const res = await login(username, password).catch(() => ({ ok: false as const, error: "Connection problem — please try again" }));
     if (!res.ok) {
       setBusy(false);
       setError(res.error);

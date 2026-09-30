@@ -8,6 +8,20 @@ import { computeTradeCalcs } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import type { Account, TerminalData } from "@/lib/terminal/types";
 
+/**
+ * Wraps a server action: network failures become an error result, and an
+ * expired login sends the user back to the login page.
+ */
+async function safe<T>(call: Promise<Result<T>>): Promise<Result<T>> {
+  try {
+    const res = await call;
+    if (!res.ok && "expired" in res && res.expired) window.location.replace(`${window.location.origin}/login`);
+    return res;
+  } catch {
+    return { ok: false, error: "Connection problem — please try again" };
+  }
+}
+
 /** How often to pick up other operators' changes while the tab is visible. */
 const REFRESH_MS = 15_000;
 
@@ -30,7 +44,7 @@ export function useTerminalStore() {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const res = await server.loadAll();
+    const res = await safe(server.loadAll());
     if (res.ok) {
       setData(res.data);
       setError(null);
@@ -44,7 +58,7 @@ export function useTerminalStore() {
     const tick = () => {
       if (!cancelled && document.visibilityState === "visible") reload();
     };
-    server.loadAll().then((res) => {
+    safe(server.loadAll()).then((res) => {
       if (cancelled) return;
       if (res.ok) setData(res.data);
       else setError(res.error);
@@ -64,12 +78,12 @@ export function useTerminalStore() {
       return res;
     };
     return {
-      saveTrade: (t) => server.saveTrade(t).then(after),
-      deleteTrade: (id) => server.deleteTrade(id).then(after),
-      saveSlab: (s) => server.saveSlab(s).then(after),
-      deleteSlab: (id) => server.deleteSlab(id).then(after),
-      saveAccount: (a, orig) => server.saveAccount(a, orig).then(after),
-      deleteAccount: (code) => server.deleteAccount(code).then(after),
+      saveTrade: (t) => safe(server.saveTrade(t)).then(after),
+      deleteTrade: (id) => safe(server.deleteTrade(id)).then(after),
+      saveSlab: (s) => safe(server.saveSlab(s)).then(after),
+      deleteSlab: (id) => safe(server.deleteSlab(id)).then(after),
+      saveAccount: (a, orig) => safe(server.saveAccount(a, orig)).then(after),
+      deleteAccount: (code) => safe(server.deleteAccount(code)).then(after),
     };
   }, [reload]);
 

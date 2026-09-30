@@ -19,7 +19,7 @@ async function sessionUser(): Promise<string | null> {
   return verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
 }
 
-const NOT_LOGGED_IN = { ok: false, error: "Session expired — please log in again" } as const;
+const NOT_LOGGED_IN = { ok: false, error: "Session expired — please log in again", expired: true } as const;
 
 /** Postgres errors → messages an operator can act on. */
 function friendly(e: { code?: string; message: string }): string {
