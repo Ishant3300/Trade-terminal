@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { signOut } from "@/app/actions";
 import { AccountMaster } from "./account-master";
 import { BrokerageMaster } from "./brokerage-master";
 import { Reports } from "./reports";
 import { useTerminalStore } from "./store";
 import { TradeBook } from "./trade-book";
 import { TradeEntry } from "./trade-entry";
+import { logout } from "@/app/actions";
 import "./terminal.css";
 
 const TABS = [
@@ -49,7 +49,7 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
           <Clock />
           <span title="Your IP address"><i className="tt-dot" /> IP: {ip || "—"}</span>
           <span><span className="tt-avatar">{(user[0] ?? "?").toUpperCase()}</span> {user}</span>
-          <form action={signOut} style={{ padding: 0, border: 0 }}>
+          <form action={logout} style={{ padding: 0, border: 0 }}>
             <button type="submit" className="tt-menu" style={{ height: "100%", fontSize: 11 }}>Log out</button>
           </form>
         </div>

@@ -1,27 +1,13 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// Use inside Server Components, Server Actions, and Route Handlers only.
-export async function createClient() {
-  const cookieStore = await cookies();
+// Server-only database client using the secret key. The browser never talks
+// to Supabase directly; RLS (no policies) blocks every other key.
+let client: SupabaseClient | undefined;
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-          } catch {
-            // Called from a Server Component with no request context to write to.
-            // Safe to ignore because the proxy refreshes the session on every request.
-          }
-        },
-      },
-    }
-  );
+export function db() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set");
+  client ??= createSupabaseClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return client;
 }
