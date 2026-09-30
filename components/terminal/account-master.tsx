@@ -112,7 +112,7 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
               <input className="tt-input num" inputMode="decimal" value={form.openingBalance}
                 onChange={(e) => set("openingBalance", e.target.value.replace(/[^\d.]/g, ""))} />
             </Field>
-            <div className="flex items-center gap-2" style={{ height: 24 }}>
+            <div className="flex items-center gap-2" style={{ height: 26 }}>
               <label className={`tt-check tt-radio-sell${form.openingType === "Dr" ? " on" : ""}`}>
                 <input type="radio" checked={form.openingType === "Dr"} onChange={() => set("openingType", "Dr")} /> Debit
               </label>

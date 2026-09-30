@@ -94,10 +94,10 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
               {data.accounts.map((a) => <option key={a.code} value={a.code}>{a.code} - {a.name}</option>)}
             </select>
           </Field>
-          <Field label="From" width={118}>
+          <Field label="From" width={128}>
             <input type="date" className="tt-input" value={draft.from} onChange={(e) => set("from", e.target.value)} />
           </Field>
-          <Field label="To" width={118}>
+          <Field label="To" width={128}>
             <input type="date" className="tt-input" value={draft.to} onChange={(e) => set("to", e.target.value)} />
           </Field>
           <button type="submit" className="tt-btn tt-btn-blue">View</button>

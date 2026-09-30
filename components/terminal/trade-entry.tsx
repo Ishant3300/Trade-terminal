@@ -293,7 +293,7 @@ export function TradeEntry({
         <div className="tt-card-b" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {/* Header action strip */}
           <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-            <Field label="Date" width={118}>
+            <Field label="Date" width={128}>
               <input ref={dateRef} type="date" className="tt-input" value={form.date}
                 onChange={(e) => e.target.value && setForm((f) => ({ ...f, date: e.target.value, valan: valanFor(e.target.value) }))} />
             </Field>
@@ -312,7 +312,7 @@ export function TradeEntry({
                 {SEGMENTS.map((s) => <option key={s}>{s}</option>)}
               </select>
             </Field>
-            <div className="flex items-center gap-2" style={{ height: 24 }}>
+            <div className="flex items-center gap-2" style={{ height: 26 }}>
               <label className={`tt-check tt-radio-buy${form.side === "B" ? " on" : ""}`}>
                 <input type="radio" name="side" checked={form.side === "B"} onChange={() => set("side", "B")} /> Buy
               </label>
@@ -320,7 +320,7 @@ export function TradeEntry({
                 <input type="radio" name="side" checked={form.side === "S"} onChange={() => set("side", "S")} /> Sell
               </label>
             </div>
-            <div className="flex items-center gap-2" style={{ height: 24, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
+            <div className="flex items-center gap-2" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
               <span className="tt-label">Type</span>
               {(["NRM", "CF", "BF"] as TradeType[]).map((tt) => (
                 <label key={tt} className="tt-check">
@@ -328,7 +328,7 @@ export function TradeEntry({
                 </label>
               ))}
             </div>
-            <label className="tt-check" style={{ height: 24, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
+            <label className="tt-check" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
               <input type="checkbox" checked={form.checkHL} onChange={(e) => set("checkHL", e.target.checked)} /> Check HL
             </label>
             <div className="tt-ticker" style={{ marginLeft: "auto" }}

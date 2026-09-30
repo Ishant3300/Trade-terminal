@@ -30,7 +30,7 @@ export default function LoginPage() {
     <div className="tt">
       <nav className="tt-nav">
         <div className="tt-brand">
-          <span className="tt-brand-mark">TT</span> Trade Terminal <span style={{ fontWeight: 400, color: "#8d96a5", fontSize: 11 }}>Jobbing BO</span>
+          <span className="tt-brand-mark">TT</span> Trade Terminal <span style={{ fontWeight: 400, color: "#8d96a5", fontSize: 12 }}>Jobbing BO</span>
         </div>
       </nav>
       <div style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}>

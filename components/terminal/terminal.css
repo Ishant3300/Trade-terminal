@@ -2,7 +2,7 @@
 
 .tt {
   font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   color: #1c2430;
   background: #edf0f5;
   min-height: 100vh;
@@ -18,7 +18,7 @@
 /* ---- Top navigation ---- */
 .tt-nav {
   background: #1f242d;
-  height: 32px;
+  height: 34px;
   display: flex;
   align-items: stretch;
   color: #c9ced6;
@@ -37,7 +37,7 @@
   padding: 0 12px 0 8px;
   color: #fff;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.3px;
   border-right: 1px solid #353c48;
   flex-shrink: 0;
@@ -45,7 +45,7 @@
 .tt-brand-mark {
   background: #1e60d2;
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 4px;
   border: 1px solid #5b8ee6;
 }
@@ -56,7 +56,7 @@
   border-right: 1px solid #2c323d;
   padding: 0 12px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -74,7 +74,7 @@
   display: flex;
   align-items: center;
   gap: 0;
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .tt-nav-right > * {
@@ -93,15 +93,15 @@
   box-shadow: 0 0 4px #3ddc6b;
 }
 .tt-avatar {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   background: #e0a526;
   color: #1f242d;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* ---- Containers ---- */
@@ -117,10 +117,10 @@
   box-shadow: 0 1px 0 rgba(20, 30, 50, 0.05);
 }
 .tt-card-h {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #1f242d;
-  height: 28px;
+  height: 30px;
   padding: 0 8px;
   border-bottom: 1px solid #d8dce3;
   background: linear-gradient(#f9fafc, #eef1f5);
@@ -132,7 +132,7 @@
   padding: 6px 8px;
 }
 .tt-section {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #1e60d2;
   border-bottom: 1px solid #e3e7ee;
@@ -142,7 +142,7 @@
 
 /* ---- Form controls ---- */
 .tt-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #3a4452;
   white-space: nowrap;
 }
@@ -157,10 +157,10 @@
 }
 .tt-input,
 .tt-select {
-  height: 24px;
-  line-height: 22px;
+  height: 26px;
+  line-height: 24px;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   color: #1c2430;
   border: 1px solid #b9c0cb;
   background: #fff;
@@ -173,7 +173,7 @@
 }
 textarea.tt-input {
   height: auto;
-  line-height: 16px;
+  line-height: 18px;
   padding: 3px 5px;
   resize: vertical;
 }
@@ -198,7 +198,7 @@ textarea.tt-input {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #3a4452;
   cursor: pointer;
   white-space: nowrap;
@@ -225,10 +225,10 @@ textarea.tt-input {
 
 /* ---- Buttons ---- */
 .tt-btn {
-  height: 24px;
+  height: 26px;
   padding: 0 12px;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid #aab2bf;
   background: linear-gradient(#fdfdfe, #e7eaef);
@@ -259,9 +259,9 @@ textarea.tt-input {
   color: #fff;
 }
 .tt-btn-xs {
-  height: 18px;
+  height: 20px;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -278,7 +278,7 @@ textarea.tt-input {
   background: transparent;
 }
 .tt-side-tag {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #fff;
   background: #1e60d2;
@@ -290,12 +290,12 @@ textarea.tt-input {
 .tt-ticker {
   display: inline-flex;
   align-items: center;
-  height: 24px;
+  height: 26px;
   border: 1px solid #1f242d;
   background: #111820;
   color: #d8dde5;
   font-family: Consolas, "Lucida Console", monospace;
-  font-size: 11px;
+  font-size: 12px;
 }
 .tt-ticker span {
   padding: 0 8px;
@@ -329,9 +329,9 @@ textarea.tt-input {
   background: #ff5f56;
 }
 .tt-status {
-  font-size: 11px;
-  height: 20px;
-  line-height: 20px;
+  font-size: 12px;
+  height: 22px;
+  line-height: 22px;
   padding: 0 8px;
   border-top: 1px solid #d8dce3;
   background: #f6f7f9;
@@ -343,7 +343,7 @@ textarea.tt-input {
 .tt-status .bad { color: #b71c1c; font-weight: 600; }
 .tt-keys kbd {
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   border: 1px solid #b9c0cb;
   background: #fff;
   padding: 0 3px;
@@ -368,8 +368,8 @@ textarea.tt-input {
 }
 .tt-suggest-item {
   padding: 2px 6px;
-  height: 20px;
-  line-height: 16px;
+  height: 22px;
+  line-height: 18px;
   white-space: nowrap;
   cursor: pointer;
   display: flex;
@@ -382,7 +382,7 @@ textarea.tt-input {
 }
 .tt-suggest-item small {
   color: #6b7686;
-  font-size: 10px;
+  font-size: 11px;
 }
 .tt-suggest-item.hl small {
   color: #d6e2fa;
@@ -396,13 +396,13 @@ textarea.tt-input {
 .tt-grid {
   border-collapse: collapse;
   width: 100%;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .tt-grid th {
   background: #525b68;
   color: #fff;
-  height: 24px;
+  height: 26px;
   padding: 2px 6px;
   border: 1px solid #434b57;
   font-weight: 600;
@@ -414,8 +414,8 @@ textarea.tt-input {
 }
 .tt-grid td {
   padding: 2px 6px;
-  height: 22px;
-  max-height: 24px;
+  height: 24px;
+  max-height: 26px;
   border: 1px solid #dcdcdc;
   white-space: nowrap;
 }
@@ -467,7 +467,7 @@ textarea.tt-input {
   color: #b71c1c;
 }
 .tt-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   background: #1f242d;
   color: #fff;
@@ -475,5 +475,5 @@ textarea.tt-input {
 }
 .tt-muted {
   color: #6b7686;
-  font-size: 10px;
+  font-size: 11px;
 }

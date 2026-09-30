@@ -38,7 +38,7 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
     <div className="tt">
       <nav className="tt-nav">
         <div className="tt-brand">
-          <span className="tt-brand-mark">TT</span> Trade Terminal <span style={{ fontWeight: 400, color: "#8d96a5", fontSize: 11 }}>Jobbing BO</span>
+          <span className="tt-brand-mark">TT</span> Trade Terminal <span style={{ fontWeight: 400, color: "#8d96a5", fontSize: 12 }}>Jobbing BO</span>
         </div>
         {TABS.map((t) => (
           <button key={t.id} type="button" className={`tt-menu${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>
@@ -50,7 +50,7 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
           <span title="Your IP address"><i className="tt-dot" /> IP: {ip || "—"}</span>
           <span><span className="tt-avatar">{(user[0] ?? "?").toUpperCase()}</span> {user}</span>
           <form action={logout} style={{ padding: 0, border: 0 }}>
-            <button type="submit" className="tt-menu" style={{ height: "100%", fontSize: 11 }}>Log out</button>
+            <button type="submit" className="tt-menu" style={{ height: "100%", fontSize: 12 }}>Log out</button>
           </form>
         </div>
       </nav>
@@ -62,7 +62,7 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
         </div>
       )}
       {!data ? (
-        !error && <div className="tt-page tt-muted" style={{ fontSize: 12 }}>Loading data…</div>
+        !error && <div className="tt-page tt-muted" style={{ fontSize: 13 }}>Loading data…</div>
       ) : (
         <>
           {tab === "entry" && <TradeEntry data={data} actions={actions} calcs={calcs} />}

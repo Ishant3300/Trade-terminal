@@ -112,12 +112,12 @@ export function BrokerageMaster({ data, actions }: { data: TerminalData; actions
                 {SEGMENTS.map((s) => <option key={s}>{s}</option>)}
               </select>
             </Field>
-            <div className="flex items-center gap-2" style={{ height: 24 }}>
+            <div className="flex items-center gap-2" style={{ height: 26 }}>
               <span className="tt-label">Option</span>
               <label className="tt-check"><input type="radio" checked={!isFix} onChange={() => set("mode", "PCT")} /> % (Wise)</label>
               <label className="tt-check"><input type="radio" checked={isFix} onChange={() => set("mode", "FIX")} /> Fix</label>
             </div>
-            <label className="tt-check" style={{ height: 24 }}>
+            <label className="tt-check" style={{ height: 26 }}>
               <input type="checkbox" checked={form.scriptWise} onChange={(e) => setForm((f) => ({ ...f, scriptWise: e.target.checked, script: "" }))} /> Script-Wise
             </label>
             <Field label="Script Name" width={130}>
@@ -132,7 +132,7 @@ export function BrokerageMaster({ data, actions }: { data: TerminalData; actions
           <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
             <Field label={isFix ? "Fix Delivery (₹/lot)" : "% Delivery"} width={110}>{numInput("del")}</Field>
             <Field label={isFix ? "Fix IntraDay (₹/lot)" : "% IntraDay"} width={110}>{numInput("intra")}</Field>
-            <label className="tt-check" style={{ height: 24 }}>
+            <label className="tt-check" style={{ height: 26 }}>
               <input type="checkbox" checked={form.higherSideOnly} onChange={(e) => set("higherSideOnly", e.target.checked)} /> Higher Side Only
             </label>
             <Field label="Minimum Rate" width={90}>{numInput("minRate")}</Field>
