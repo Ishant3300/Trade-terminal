@@ -7,8 +7,7 @@ import {
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS, TERMINAL_IP, TERMINAL_USER } from "@/lib/terminal/seed";
 import { DERIVATIVE_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
-import type { Action, Tick } from "./store";
-import { tickKey } from "./store";
+import type { Action } from "./store";
 import { Field, Suggest } from "./ui";
 
 interface Form {
@@ -17,7 +16,6 @@ interface Form {
   segment: Segment;
   side: Side;
   tradeType: TradeType;
-  checkHL: boolean;
   script: string;
   option: OptionType;
   strike: string;
@@ -30,19 +28,18 @@ interface Form {
 const today = () => toDateStr(new Date());
 
 const initialForm = (): Form => ({
-  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: false,
+  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM",
   script: "", option: "", strike: "", lot: "", qty: "", rate: "", clientCode: "",
 });
 
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
 
 export function TradeEntry({
-  data, dispatch, calcs, ticks,
+  data, dispatch, calcs,
 }: {
   data: TerminalData;
   dispatch: Dispatch<Action>;
   calcs: Map<number, TradeCalc>;
-  ticks: Record<string, Tick>;
 }) {
   const [form, setForm] = useState<Form>(initialForm);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -67,7 +64,6 @@ export function TradeEntry({
   const inst = findInstrument(INSTRUMENTS, form.segment, form.script);
   const lotSize = inst?.lotSize ?? 0;
   const account = data.accounts.find((a) => a.code === form.clientCode.trim().toUpperCase());
-  const tick = inst ? ticks[tickKey(inst.segment, inst.name)] : undefined;
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -75,11 +71,8 @@ export function TradeEntry({
     setForm((f) => {
       const next = { ...f, script };
       const i = findInstrument(INSTRUMENTS, f.segment, script);
-      if (i) {
-        const lot = num(f.lot);
-        if (lot > 0) next.qty = String(lot * i.lotSize);
-        if (!f.rate && f.segment !== "NSEOPT") next.rate = String(ticks[tickKey(i.segment, i.name)]?.ltp ?? i.ltp);
-      }
+      const lot = num(f.lot);
+      if (i && lot > 0) next.qty = String(lot * i.lotSize);
       return next;
     });
 
@@ -141,7 +134,7 @@ export function TradeEntry({
 
   // ---- Actions ---------------------------------------------------------------------
   const resetForm = (keepHeader = true) => {
-    setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType, checkHL: f.checkHL } : initialForm()));
+    setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType } : initialForm()));
     setEditingId(null);
     setTimeout(() => scriptRef.current?.focus(), 0);
   };
@@ -161,8 +154,6 @@ export function TradeEntry({
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
     const rate = num(form.rate);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
-    if (form.checkHL && !isOpt && tick && (rate < tick.low || rate > tick.high))
-      return fail(`Rate ${fmt2(rate)} outside day range L ${fmt2(tick.low)} – H ${fmt2(tick.high)}`, rateRef.current);
     if (!account) return fail(`Invalid client code "${form.clientCode}"`, clientRef.current);
     if (!draft) return;
 
@@ -303,15 +294,6 @@ export function TradeEntry({
                   <input type="radio" name="ttype" checked={form.tradeType === tt} onChange={() => set("tradeType", tt)} /> {tt}
                 </label>
               ))}
-            </div>
-            <label className="tt-check" style={{ height: 24, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
-              <input type="checkbox" checked={form.checkHL} onChange={(e) => set("checkHL", e.target.checked)} /> Check HL
-            </label>
-            <div className="tt-ticker" style={{ marginLeft: "auto" }} title={inst ? `${inst.name} (${inst.segment})` : "Select a script"}>
-              <span>{inst ? inst.symbol : "—"}</span>
-              <span>L: <b className="l">{fmt2(tick?.low ?? 0)}</b></span>
-              <span>M: <b className="m">{fmt2(tick?.ltp ?? 0)}</b></span>
-              <span style={{ borderRight: 0 }}>H: <b className="h">{fmt2(tick?.high ?? 0)}</b></span>
             </div>
           </div>
 

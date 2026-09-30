@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import { computeTradeCalcs } from "@/lib/terminal/engine";
 import { createEmptyData, INSTRUMENTS } from "@/lib/terminal/seed";
 import type { Account, Slab, TerminalData, Trade } from "@/lib/terminal/types";
@@ -84,36 +84,4 @@ export function useTerminalStore() {
   }, [data]);
   const calcs = useMemo(() => computeTradeCalcs(data.trades, data.slabs, INSTRUMENTS), [data.trades, data.slabs]);
   return { data, dispatch, calcs };
-}
-
-export interface Tick {
-  ltp: number;
-  low: number;
-  high: number;
-}
-
-export const tickKey = (segment: string, name: string) => `${segment}|${name}`;
-
-/** Mock market feed: a small random walk on every instrument. */
-export function useTicker(intervalMs = 1500) {
-  const [ticks, setTicks] = useState<Record<string, Tick>>(() =>
-    Object.fromEntries(INSTRUMENTS.map((i) => [tickKey(i.segment, i.name), { ltp: i.ltp, low: i.low, high: i.high }]))
-  );
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTicks((prev) => {
-        const next: Record<string, Tick> = {};
-        for (const i of INSTRUMENTS) {
-          const k = tickKey(i.segment, i.name);
-          const p = prev[k];
-          const step = i.ltp * 0.0004 * (Math.random() * 2 - 1);
-          const ltp = +Math.min(Math.max(p.ltp + step, i.ltp * 0.97), i.ltp * 1.03).toFixed(2);
-          next[k] = { ltp, low: Math.min(p.low, ltp), high: Math.max(p.high, ltp) };
-        }
-        return next;
-      });
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return ticks;
 }

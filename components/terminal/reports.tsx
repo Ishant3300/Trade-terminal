@@ -4,9 +4,7 @@ import { useMemo, useState } from "react";
 import {
   addDays, computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, toDateStr, type TradeCalc,
 } from "@/lib/terminal/engine";
-import { INSTRUMENTS } from "@/lib/terminal/seed";
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
-import type { Tick } from "./store";
 import { downloadCsv, Field, PnL } from "./ui";
 
 interface Filters {
@@ -22,12 +20,11 @@ const defaults = (): Filters => {
   return { segment: "", script: "", client: "", from: addDays(today, -7), to: today };
 };
 
-export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map<number, TradeCalc>; ticks: Record<string, Tick> }) {
+export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number, TradeCalc> }) {
   const [draft, setDraft] = useState<Filters>(defaults);
   const [f, setApplied] = useState<Filters>(defaults);
   const set = (k: keyof Filters, v: string) => setDraft((d) => ({ ...d, [k]: v }));
   const nameOf = useMemo(() => new Map(data.accounts.map((a) => [a.code, a.name])), [data.accounts]);
-  const ltps = useMemo(() => Object.fromEntries(Object.entries(ticks).map(([k, t]) => [k, t.ltp])), [ticks]);
 
   const positions = useMemo(() => {
     const q = f.script.trim().toUpperCase();
@@ -38,15 +35,15 @@ export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map
       (!f.from || t.date >= f.from) &&
       (!f.to || t.date <= f.to)
     );
-    return computePositions(trades, calcs, INSTRUMENTS, ltps);
-  }, [data.trades, calcs, ltps, f]);
+    return computePositions(trades, calcs);
+  }, [data.trades, calcs, f]);
 
   // Ledger balances run over every trade up to the To date, across all segments.
   const ledger = useMemo(() => {
     const trades = data.trades.filter((t) => !f.to || t.date <= f.to);
     const accounts = data.accounts.filter((a) => !f.client || a.code === f.client);
-    return computeLedger(accounts, computePositions(trades, calcs, INSTRUMENTS, ltps));
-  }, [data.trades, data.accounts, calcs, ltps, f.to, f.client]);
+    return computeLedger(accounts, computePositions(trades, calcs));
+  }, [data.trades, data.accounts, calcs, f.to, f.client]);
 
   const pt = positions.reduce((s, p) => ({ realized: s.realized + p.realized, mtm: s.mtm + p.mtm }), { realized: 0, mtm: 0 });
   const lt = ledger.reduce(
@@ -57,8 +54,8 @@ export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map
   const exportPositions = () =>
     downloadCsv(
       `net_position_${f.from}_${f.to}.csv`,
-      ["Client Code", "Client", "Segment", "Script", "Buy Qty", "Avg Buy Rate", "Sell Qty", "Avg Sell Rate", "Net Qty", "LTP", "Realized P&L", "MTM"],
-      positions.map((p) => [p.clientCode, nameOf.get(p.clientCode) ?? "", p.segment, p.label, p.buyQty, p.avgBuy.toFixed(4), p.sellQty, p.avgSell.toFixed(4), p.netQty, p.ltp.toFixed(2), p.realized.toFixed(2), p.mtm.toFixed(2)])
+      ["Client Code", "Client", "Segment", "Script", "Buy Qty", "Avg Buy Rate", "Sell Qty", "Avg Sell Rate", "Net Qty", "Last Rate", "Realized P&L", "MTM"],
+      positions.map((p) => [p.clientCode, nameOf.get(p.clientCode) ?? "", p.segment, p.label, p.buyQty, p.avgBuy.toFixed(4), p.sellQty, p.avgSell.toFixed(4), p.netQty, p.lastRate.toFixed(2), p.realized.toFixed(2), p.mtm.toFixed(2)])
     );
 
   return (
@@ -89,7 +86,7 @@ export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map
           </Field>
           <button type="submit" className="tt-btn tt-btn-blue">View</button>
           <button type="button" className="tt-btn tt-btn-save" onClick={exportPositions} disabled={!positions.length}>Export to Excel</button>
-          <span className="tt-muted" style={{ marginLeft: "auto" }}>MTM marked to live LTP (options: last traded price)</span>
+          <span className="tt-muted" style={{ marginLeft: "auto" }}>MTM marked to the last traded rate of each contract</span>
         </form>
       </div>
 
@@ -104,7 +101,7 @@ export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map
               <tr>
                 <th>Client</th><th>Segment</th><th>Script</th><th className="num">Total Buy Qty</th><th className="num">Avg Buy Rate</th>
                 <th className="num">Total Sell Qty</th><th className="num">Avg Sell Rate</th><th className="num">Net Qty</th>
-                <th className="num">LTP</th><th className="num">Realized P&amp;L</th><th className="num">MTM</th>
+                <th className="num">Last Rate</th><th className="num">Realized P&amp;L</th><th className="num">MTM</th>
               </tr>
             </thead>
             <tbody>
@@ -118,7 +115,7 @@ export function Reports({ data, calcs, ticks }: { data: TerminalData; calcs: Map
                   <td className="num s-txt">{fmt0(p.sellQty)}</td>
                   <td className="num">{p.sellQty ? fmt2(p.avgSell) : ""}</td>
                   <td className={`num ${p.netQty > 0 ? "b-txt" : p.netQty < 0 ? "s-txt" : ""}`}>{fmt0(p.netQty)}</td>
-                  <td className="num">{fmt2(p.ltp)}</td>
+                  <td className="num">{fmt2(p.lastRate)}</td>
                   <td className="num"><PnL value={p.realized} /></td>
                   <td className="num"><PnL value={p.mtm} /></td>
                 </tr>

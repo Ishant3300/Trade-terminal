@@ -5,7 +5,7 @@ import { TERMINAL_IP, TERMINAL_USER } from "@/lib/terminal/seed";
 import { AccountMaster } from "./account-master";
 import { BrokerageMaster } from "./brokerage-master";
 import { Reports } from "./reports";
-import { useTerminalStore, useTicker } from "./store";
+import { useTerminalStore } from "./store";
 import { TradeBook } from "./trade-book";
 import { TradeEntry } from "./trade-entry";
 import "./terminal.css";
@@ -33,7 +33,6 @@ function Clock() {
 export default function TerminalApp() {
   const [tab, setTab] = useState<TabId>("entry");
   const { data, dispatch, calcs } = useTerminalStore();
-  const ticks = useTicker();
 
   return (
     <div className="tt">
@@ -57,11 +56,11 @@ export default function TerminalApp() {
         </div>
       </nav>
 
-      {tab === "entry" && <TradeEntry data={data} dispatch={dispatch} calcs={calcs} ticks={ticks} />}
+      {tab === "entry" && <TradeEntry data={data} dispatch={dispatch} calcs={calcs} />}
       {tab === "book" && <TradeBook data={data} calcs={calcs} />}
       {tab === "brokerage" && <BrokerageMaster data={data} dispatch={dispatch} />}
       {tab === "account" && <AccountMaster data={data} dispatch={dispatch} />}
-      {tab === "reports" && <Reports data={data} calcs={calcs} ticks={ticks} />}
+      {tab === "reports" && <Reports data={data} calcs={calcs} />}
     </div>
   );
 }

@@ -14,9 +14,6 @@ export interface Instrument {
   symbol: string;
   segment: Segment;
   lotSize: number;
-  ltp: number;
-  low: number;
-  high: number;
 }
 
 export interface Trade {

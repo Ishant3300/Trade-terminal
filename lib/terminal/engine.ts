@@ -231,34 +231,18 @@ export interface Position {
   avgBuy: number; // net-rate average
   avgSell: number;
   netQty: number;
-  ltp: number;
+  lastRate: number; // last traded rate in this contract
   realized: number; // on net rates (brokerage included)
-  mtm: number; // unrealized on open qty vs LTP, net rates
+  mtm: number; // unrealized on open qty vs last rate, net rates
   grossRealized: number; // on trade rates
   grossMtm: number;
   brokerage: number;
 }
 
-/**
- * Last price per contract: instrument LTP for futures / equity, last traded
- * price for options (no option chain feed in this terminal).
- */
-export function lastPrice(t: Trade, instruments: Instrument[], ticks: Record<string, number>, lastTraded: Map<string, number>) {
-  if (!t.option) {
-    const inst = findInstrument(instruments, t.segment, t.script);
-    if (inst) return ticks[`${inst.segment}|${inst.name}`] ?? inst.ltp;
-  }
-  return lastTraded.get(instrumentKey(t)) ?? t.rate;
-}
-
-export function computePositions(
-  trades: Trade[],
-  calcs: Map<number, TradeCalc>,
-  instruments: Instrument[],
-  ticks: Record<string, number>
-): Position[] {
+/** MTM is marked to the last rate traded in each contract (no market data feed). */
+export function computePositions(trades: Trade[], calcs: Map<number, TradeCalc>): Position[] {
   const lastTraded = new Map<string, number>();
-  for (const t of [...trades].sort((a, b) => a.addTime.localeCompare(b.addTime))) {
+  for (const t of [...trades].sort((a, b) => a.addTime.localeCompare(b.addTime) || a.id - b.id)) {
     lastTraded.set(instrumentKey(t), t.rate);
   }
 
@@ -284,7 +268,7 @@ export function computePositions(
   const out: Position[] = [];
   for (const [key, p] of map) {
     const t = p.sample;
-    const ltp = lastPrice(t, instruments, ticks, lastTraded);
+    const lastRate = lastTraded.get(instrumentKey(t)) ?? t.rate;
     const avgBuy = p.bq ? p.bn / p.bq : 0;
     const avgSell = p.sq ? p.sn / p.sq : 0;
     const gAvgBuy = p.bq ? p.bg / p.bq : 0;
@@ -292,7 +276,7 @@ export function computePositions(
     const matched = Math.min(p.bq, p.sq);
     const netQty = p.bq - p.sq;
     const unreal = (aBuy: number, aSell: number) =>
-      netQty > 0 ? (ltp - aBuy) * netQty : netQty < 0 ? (aSell - ltp) * -netQty : 0;
+      netQty > 0 ? (lastRate - aBuy) * netQty : netQty < 0 ? (aSell - lastRate) * -netQty : 0;
     out.push({
       key,
       clientCode: t.clientCode,
@@ -303,7 +287,7 @@ export function computePositions(
       avgBuy,
       avgSell,
       netQty,
-      ltp,
+      lastRate,
       realized: (avgSell - avgBuy) * matched,
       mtm: unreal(avgBuy, avgSell),
       grossRealized: (gAvgSell - gAvgBuy) * matched,
