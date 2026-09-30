@@ -1,0 +1,458 @@
+/* Dense legacy back-office look. Everything is scoped under .tt. */
+
+.tt {
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  color: #1c2430;
+  background: #edf0f5;
+  min-height: 100vh;
+  -webkit-font-smoothing: auto;
+}
+.tt *,
+.tt *::before,
+.tt *::after {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
+/* ---- Top navigation ---- */
+.tt-nav {
+  background: #1f242d;
+  height: 32px;
+  display: flex;
+  align-items: stretch;
+  color: #c9ced6;
+  border-bottom: 2px solid #1e60d2;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tt-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 8px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  border-right: 1px solid #353c48;
+  flex-shrink: 0;
+}
+.tt-brand-mark {
+  background: #1e60d2;
+  color: #fff;
+  font-size: 10px;
+  padding: 1px 4px;
+  border: 1px solid #5b8ee6;
+}
+.tt-menu {
+  color: #c9ced6;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #2c323d;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tt-menu:hover {
+  background: #2d3440;
+  color: #fff;
+}
+.tt-menu.active {
+  background: #1e60d2;
+  color: #fff;
+  font-weight: 600;
+}
+.tt-nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.tt-nav-right > * {
+  padding: 0 10px;
+  border-left: 1px solid #2c323d;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tt-dot {
+  width: 7px;
+  height: 7px;
+  background: #3ddc6b;
+  display: inline-block;
+  box-shadow: 0 0 4px #3ddc6b;
+}
+.tt-avatar {
+  width: 18px;
+  height: 18px;
+  background: #e0a526;
+  color: #1f242d;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+/* ---- Containers ---- */
+.tt-page {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tt-card {
+  background: #fff;
+  border: 1px solid #d8dce3;
+  box-shadow: 0 1px 0 rgba(20, 30, 50, 0.05);
+}
+.tt-card-h {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f242d;
+  height: 28px;
+  padding: 0 8px;
+  border-bottom: 1px solid #d8dce3;
+  background: linear-gradient(#f9fafc, #eef1f5);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tt-card-b {
+  padding: 6px 8px;
+}
+.tt-section {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e60d2;
+  border-bottom: 1px solid #e3e7ee;
+  padding: 2px 0;
+  margin: 4px 0 6px;
+}
+
+/* ---- Form controls ---- */
+.tt-label {
+  font-size: 12px;
+  color: #3a4452;
+  white-space: nowrap;
+}
+.tt-req {
+  color: #dc3545;
+  margin-left: 1px;
+}
+.tt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tt-input,
+.tt-select {
+  height: 24px;
+  line-height: 22px;
+  font: inherit;
+  font-size: 11px;
+  color: #1c2430;
+  border: 1px solid #b9c0cb;
+  background: #fff;
+  padding: 0 5px;
+  outline: none;
+  min-width: 0;
+}
+.tt-select {
+  padding: 0 2px;
+}
+textarea.tt-input {
+  height: auto;
+  line-height: 16px;
+  padding: 3px 5px;
+  resize: vertical;
+}
+.tt-input:focus,
+.tt-select:focus {
+  background: #ffffcc;
+  border-color: #7ba7e1;
+  box-shadow: inset 0 0 0 1px #7ba7e1;
+}
+.tt-input[readonly] {
+  background: #eef1f5;
+  color: #2b3440;
+}
+.tt-input.num {
+  text-align: right;
+}
+.tt-input.err {
+  border-color: #dc3545;
+  background: #fff4f4;
+}
+.tt-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #3a4452;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tt-check input {
+  margin: 0;
+  width: 13px;
+  height: 13px;
+}
+.tt-radio-buy input {
+  accent-color: #1e60d2;
+}
+.tt-radio-sell input {
+  accent-color: #dc3545;
+}
+.tt-radio-buy.on {
+  color: #0d47a1;
+  font-weight: 700;
+}
+.tt-radio-sell.on {
+  color: #b71c1c;
+  font-weight: 700;
+}
+
+/* ---- Buttons ---- */
+.tt-btn {
+  height: 24px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid #aab2bf;
+  background: linear-gradient(#fdfdfe, #e7eaef);
+  color: #1f242d;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tt-btn:hover {
+  filter: brightness(0.96);
+}
+.tt-btn:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+.tt-btn-save {
+  background: #28a745;
+  border-color: #1f8a38;
+  color: #fff;
+}
+.tt-btn-blue {
+  background: #1e60d2;
+  border-color: #164da9;
+  color: #fff;
+}
+.tt-btn-red {
+  background: #dc3545;
+  border-color: #b52a37;
+  color: #fff;
+}
+.tt-btn-xs {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* ---- Trade entry strip ---- */
+.tt-entry {
+  border-left: 4px solid #1e60d2;
+  background: #e3edfb;
+}
+.tt-entry.sell {
+  border-left-color: #dc3545;
+  background: #fbe4e2;
+}
+.tt-entry .tt-card-h {
+  background: transparent;
+}
+.tt-side-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: #1e60d2;
+  padding: 1px 8px;
+}
+.tt-entry.sell .tt-side-tag {
+  background: #dc3545;
+}
+.tt-ticker {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  border: 1px solid #1f242d;
+  background: #111820;
+  color: #d8dde5;
+  font-family: Consolas, "Lucida Console", monospace;
+  font-size: 11px;
+}
+.tt-ticker span {
+  padding: 0 8px;
+  border-right: 1px solid #2f3845;
+}
+.tt-ticker b {
+  font-weight: 600;
+}
+.tt-ticker .l { color: #ff7b72; }
+.tt-ticker .m { color: #ffd866; }
+.tt-ticker .h { color: #5fe08a; }
+.tt-status {
+  font-size: 11px;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-top: 1px solid #d8dce3;
+  background: #f6f7f9;
+  color: #3a4452;
+  display: flex;
+  gap: 12px;
+}
+.tt-status .ok { color: #1a7f37; font-weight: 600; }
+.tt-status .bad { color: #b71c1c; font-weight: 600; }
+.tt-keys kbd {
+  font-family: inherit;
+  font-size: 10px;
+  border: 1px solid #b9c0cb;
+  background: #fff;
+  padding: 0 3px;
+  margin-right: 2px;
+}
+
+/* ---- Suggest dropdown ---- */
+.tt-suggest {
+  position: relative;
+}
+.tt-suggest-list {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 30;
+  min-width: 100%;
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #7ba7e1;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12);
+}
+.tt-suggest-item {
+  padding: 2px 6px;
+  height: 20px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.tt-suggest-item.hl {
+  background: #1e60d2;
+  color: #fff;
+}
+.tt-suggest-item small {
+  color: #6b7686;
+  font-size: 10px;
+}
+.tt-suggest-item.hl small {
+  color: #d6e2fa;
+}
+
+/* ---- Data grid ---- */
+.tt-grid-wrap {
+  overflow: auto;
+  border-top: 1px solid #d8dce3;
+}
+.tt-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.tt-grid th {
+  background: #525b68;
+  color: #fff;
+  height: 24px;
+  padding: 2px 6px;
+  border: 1px solid #434b57;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.tt-grid td {
+  padding: 2px 6px;
+  height: 22px;
+  max-height: 24px;
+  border: 1px solid #dcdcdc;
+  white-space: nowrap;
+}
+.tt-grid tbody tr:nth-child(even) td {
+  background: #f7f8fa;
+}
+.tt-grid tr.buy td,
+.tt-grid tbody tr.buy:nth-child(even) td {
+  background: #e8f1fc;
+}
+.tt-grid tr.sell td,
+.tt-grid tbody tr.sell:nth-child(even) td {
+  background: #fde8e7;
+}
+.tt-grid tbody tr:hover td {
+  box-shadow: inset 0 1px 0 #7ba7e1, inset 0 -1px 0 #7ba7e1;
+}
+.tt-grid tr.editing td {
+  background: #fff3b0 !important;
+}
+.tt-grid tfoot td {
+  background: #e4e8ee;
+  font-weight: 700;
+  border-color: #c4cad3;
+}
+.tt-grid .num {
+  text-align: right;
+}
+.tt-grid .ctr {
+  text-align: center;
+}
+.tt-grid .empty {
+  text-align: center;
+  color: #6b7686;
+  padding: 10px;
+}
+.tt .b-txt {
+  color: #0d47a1;
+  font-weight: 600;
+}
+.tt .s-txt {
+  color: #b71c1c;
+  font-weight: 600;
+}
+.tt .pos {
+  color: #1a7f37;
+}
+.tt .neg {
+  color: #b71c1c;
+}
+.tt-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: #1f242d;
+  color: #fff;
+  padding: 1px 7px;
+}
+.tt-muted {
+  color: #6b7686;
+  font-size: 10px;
+}
