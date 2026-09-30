@@ -1,3 +1,4 @@
+import { MCX_FUTURES, NCDEX_FUTURES } from "./exchange-master";
 import { FO_LOTS } from "./fo-master";
 import {
   DERIVATIVE_SEGMENTS,
@@ -81,15 +82,21 @@ export function findListed(instruments: Instrument[], segment: Segment, name: st
 }
 
 /**
- * Listed contract, or — for NSE F&O contracts that have since expired and
+ * Listed contract, or — for derivative contracts that have since expired and
  * dropped out of the master — one rebuilt from the symbol's lot size, so old
  * trades keep their lot size and script-wise slabs.
  */
 export function findInstrument(instruments: Instrument[], segment: Segment, name: string): Instrument | undefined {
   const listed = findListed(instruments, segment, name);
-  if (listed || (segment !== "NSEFUT" && segment !== "NSEOPT")) return listed;
+  if (listed || segment === "NSEEQ") return listed;
   const parsed = parseContract(name);
-  const lotSize = parsed ? FO_LOTS[parsed.symbol] : undefined;
+  const lotSize = !parsed
+    ? undefined
+    : segment === "MCXFUT"
+      ? MCX_FUTURES[parsed.symbol]?.lot
+      : segment === "NCDEX"
+        ? NCDEX_FUTURES[parsed.symbol]?.lot
+        : FO_LOTS[parsed.symbol];
   if (!parsed || !lotSize) return undefined;
   return { name: name.trim().toUpperCase(), symbol: parsed.symbol, segment, lotSize, expiry: parsed.expiry };
 }

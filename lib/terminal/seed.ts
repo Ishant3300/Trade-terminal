@@ -1,10 +1,7 @@
-import { contractName, parseContract } from "./engine";
+import { contractName } from "./engine";
+import { MCX_FUTURES, NCDEX_FUTURES, NSE_EQUITIES, type CommodityMaster } from "./exchange-master";
 import { FO_DEFAULT_EXPIRIES, FO_EXPIRY_OVERRIDES, FO_LOTS } from "./fo-master";
 import type { Instrument, Segment } from "./types";
-
-const inst = (name: string, symbol: string, segment: Segment, lotSize: number): Instrument => ({
-  name, symbol, segment, lotSize, expiry: parseContract(name)?.expiry,
-});
 
 /** Every NSE F&O contract in the generated master (futures + option expiries). */
 function nseFoInstruments(): Instrument[] {
@@ -21,17 +18,15 @@ function nseFoInstruments(): Instrument[] {
   return out;
 }
 
+function commodityInstruments(segment: Segment, master: Record<string, CommodityMaster>): Instrument[] {
+  return Object.entries(master).flatMap(([symbol, { lot, expiries }]) =>
+    expiries.map((expiry) => ({ name: contractName(symbol, expiry), symbol, segment, lotSize: lot, expiry }))
+  );
+}
+
 export const INSTRUMENTS: Instrument[] = [
   ...nseFoInstruments(),
-  inst("CRUDEOIL 19OCT2026", "CRUDEOIL", "MCXFUT", 100),
-  inst("GOLDM 05NOV2026", "GOLDM", "MCXFUT", 10),
-  inst("SILVERM 30NOV2026", "SILVERM", "MCXFUT", 5),
-  inst("NATURALGAS 27OCT2026", "NATURALGAS", "MCXFUT", 1250),
-  inst("DHANIYA 20OCT2026", "DHANIYA", "NCDEX", 5),
-  inst("JEERAUNJHA 20OCT2026", "JEERAUNJHA", "NCDEX", 3),
-  inst("GUARSEED10 20OCT2026", "GUARSEED10", "NCDEX", 5),
-  inst("RELIANCE", "RELIANCE", "NSEEQ", 1),
-  inst("BHEL", "BHEL", "NSEEQ", 1),
-  inst("TATASTEEL", "TATASTEEL", "NSEEQ", 1),
-  inst("INFY", "INFY", "NSEEQ", 1),
+  ...commodityInstruments("MCXFUT", MCX_FUTURES),
+  ...commodityInstruments("NCDEX", NCDEX_FUTURES),
+  ...NSE_EQUITIES.map((symbol): Instrument => ({ name: symbol, symbol, segment: "NSEEQ", lotSize: 1 })),
 ];
