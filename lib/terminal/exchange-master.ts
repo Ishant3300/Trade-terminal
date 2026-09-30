@@ -316,5 +316,7 @@ export const MCX_FUTURES: Record<string, CommodityMaster> = {
 };
 
 export const NCDEX_FUTURES: Record<string, CommodityMaster> = {
-
+  "CASTOR": { lot: 50, expiries: ["2026-10-16", "2026-11-20", "2026-12-18", "2027-01-20"] },
+  "COCUDAKL": { lot: 100, expiries: ["2026-12-18", "2027-01-20", "2027-02-19", "2027-03-19"] },
+  "GUARSEED10": { lot: 50, expiries: ["2026-10-16", "2026-11-20", "2026-12-18", "2027-01-20", "2027-02-19", "2027-03-19"] },
 };

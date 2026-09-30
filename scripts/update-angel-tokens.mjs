@@ -31,7 +31,11 @@ const UPSTOX_MCX = "https://assets.upstox.com/market-quote/instruments/exchange/
  * from NCDEX contract specifications. Commodities not listed here are left
  * out of Script Name until verified.
  */
-const NCDEX_MULTIPLIER = {};
+const NCDEX_MULTIPLIER = {
+  CASTOR: 50, // 5 MT, Rs/quintal (NCDEX Castor Seed product note)
+  GUARSEED10: 50, // 5 MT, Rs/quintal
+  COCUDAKL: 100, // 10 MT, Rs/quintal
+};
 
 const MONTHS = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
 /** "27OCT2026" → "2026-10-27" */
