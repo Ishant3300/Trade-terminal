@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TERMINAL_IP, TERMINAL_USER } from "@/lib/terminal/seed";
+import { signOut } from "@/app/actions";
 import { AccountMaster } from "./account-master";
 import { BrokerageMaster } from "./brokerage-master";
 import { Reports } from "./reports";
@@ -30,9 +30,9 @@ function Clock() {
   return <span>{d} &nbsp;<b style={{ color: "#fff", fontFamily: "Consolas, monospace" }}>{t}</b></span>;
 }
 
-export default function TerminalApp() {
+export default function TerminalApp({ user, ip }: { user: string; ip: string }) {
   const [tab, setTab] = useState<TabId>("entry");
-  const { data, dispatch, calcs } = useTerminalStore();
+  const { data, error, actions, calcs } = useTerminalStore();
 
   return (
     <div className="tt">
@@ -47,20 +47,31 @@ export default function TerminalApp() {
         ))}
         <div className="tt-nav-right">
           <Clock />
-          <span title="Terminal IP"><i className="tt-dot" /> IP: {TERMINAL_IP}</span>
-          <button type="button" className="tt-menu" style={{ border: 0, fontSize: 11 }}
-            onClick={() => confirm("Delete ALL accounts, brokerage slabs and trades? This cannot be undone.") && dispatch({ type: "reset" })}>
-            Clear All Data
-          </button>
-          <span><span className="tt-avatar">{TERMINAL_USER[0]}</span> {TERMINAL_USER}</span>
+          <span title="Your IP address"><i className="tt-dot" /> IP: {ip || "—"}</span>
+          <span><span className="tt-avatar">{(user[0] ?? "?").toUpperCase()}</span> {user}</span>
+          <form action={signOut} style={{ padding: 0, border: 0 }}>
+            <button type="submit" className="tt-menu" style={{ height: "100%", fontSize: 11 }}>Log out</button>
+          </form>
         </div>
       </nav>
 
-      {tab === "entry" && <TradeEntry data={data} dispatch={dispatch} calcs={calcs} />}
-      {tab === "book" && <TradeBook data={data} calcs={calcs} />}
-      {tab === "brokerage" && <BrokerageMaster data={data} dispatch={dispatch} />}
-      {tab === "account" && <AccountMaster data={data} dispatch={dispatch} />}
-      {tab === "reports" && <Reports data={data} calcs={calcs} />}
+      {error && (
+        <div className="tt-status" style={{ background: "#fde8e7" }}>
+          <span className="bad">Database error: {error}</span>
+          <button type="button" className="tt-btn tt-btn-xs" style={{ marginLeft: "auto", alignSelf: "center" }} onClick={() => location.reload()}>Reload</button>
+        </div>
+      )}
+      {!data ? (
+        !error && <div className="tt-page tt-muted" style={{ fontSize: 12 }}>Loading data…</div>
+      ) : (
+        <>
+          {tab === "entry" && <TradeEntry data={data} actions={actions} calcs={calcs} />}
+          {tab === "book" && <TradeBook data={data} calcs={calcs} />}
+          {tab === "brokerage" && <BrokerageMaster data={data} actions={actions} />}
+          {tab === "account" && <AccountMaster data={data} actions={actions} />}
+          {tab === "reports" && <Reports data={data} calcs={calcs} />}
+        </>
+      )}
     </div>
   );
 }

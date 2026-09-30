@@ -78,6 +78,4 @@ export interface TerminalData {
   accounts: Account[];
   slabs: Slab[];
   trades: Trade[];
-  nextTradeId: number;
-  nextSlabId: number;
 }

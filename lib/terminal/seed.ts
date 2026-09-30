@@ -1,9 +1,6 @@
 import { contractName, parseContract } from "./engine";
 import { FO_DEFAULT_EXPIRIES, FO_EXPIRY_OVERRIDES, FO_LOTS } from "./fo-master";
-import type { Instrument, Segment, TerminalData } from "./types";
-
-export const TERMINAL_USER = "Jiten";
-export const TERMINAL_IP = "192.168.1.25";
+import type { Instrument, Segment } from "./types";
 
 const inst = (name: string, symbol: string, segment: Segment, lotSize: number): Instrument => ({
   name, symbol, segment, lotSize, expiry: parseContract(name)?.expiry,
@@ -38,8 +35,3 @@ export const INSTRUMENTS: Instrument[] = [
   inst("TATASTEEL", "TATASTEEL", "NSEEQ", 1),
   inst("INFY", "INFY", "NSEEQ", 1),
 ];
-
-/** Starting state: no accounts, slabs or trades. */
-export function createEmptyData(): TerminalData {
-  return { accounts: [], slabs: [], trades: [], nextTradeId: 1, nextSlabId: 1 };
-}

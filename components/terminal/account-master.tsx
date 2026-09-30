@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type Dispatch } from "react";
+import { useState } from "react";
 import { fmt2 } from "@/lib/terminal/engine";
 import type { Account, AccountType, TerminalData } from "@/lib/terminal/types";
-import type { Action } from "./store";
+import type { TerminalActions } from "./store";
 import { Field } from "./ui";
 
 interface Form {
@@ -34,14 +34,14 @@ const empty = (accounts: Account[]): Form => ({
   mobile: "", email: "", address: "", remark: "", interestPct: "",
 });
 
-export function AccountMaster({ data, dispatch }: { data: TerminalData; dispatch: Dispatch<Action> }) {
+export function AccountMaster({ data, actions }: { data: TerminalData; actions: TerminalActions }) {
   const [form, setForm] = useState<Form>(() => empty(data.accounts));
   const [editing, setEditing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [search, setSearch] = useState("");
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  const save = () => {
+  const save = async () => {
     const name = form.name.trim().toUpperCase();
     const code = form.code.trim().toUpperCase();
     if (!name) return setMessage({ ok: false, text: "Account Name is required" });
@@ -57,7 +57,8 @@ export function AccountMaster({ data, dispatch }: { data: TerminalData; dispatch
       mobile: form.mobile, email: form.email.trim(), address: form.address.trim(), remark: form.remark.trim(),
       interestPct: Number(form.interestPct) || 0,
     };
-    dispatch({ type: "saveAccount", account, originalCode: editing ?? undefined });
+    const res = await actions.saveAccount(account, editing ?? undefined);
+    if (!res.ok) return setMessage({ ok: false, text: `Not saved: ${res.error}` });
     setMessage({ ok: true, text: `Account ${code} - ${name} ${editing ? "updated" : "created"}` });
     setEditing(null);
     setForm(empty(editing ? data.accounts : [...data.accounts, account]));
@@ -73,11 +74,12 @@ export function AccountMaster({ data, dispatch }: { data: TerminalData; dispatch
     setMessage(null);
   };
 
-  const remove = (a: Account) => {
+  const remove = async (a: Account) => {
     const count = data.trades.filter((t) => t.clientCode === a.code).length;
     if (count) return setMessage({ ok: false, text: `Cannot delete ${a.code}: ${count} trade(s) exist for this account` });
     if (!confirm(`Delete account ${a.code} - ${a.name}? Its brokerage slabs are removed too.`)) return;
-    dispatch({ type: "deleteAccount", code: a.code });
+    const res = await actions.deleteAccount(a.code);
+    if (!res.ok) return setMessage({ ok: false, text: `Not deleted: ${res.error}` });
     if (editing === a.code) { setEditing(null); setForm(empty(data.accounts)); }
   };
 

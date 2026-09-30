@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type Dispatch } from "react";
+import { useState } from "react";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import { SEGMENTS, type Segment, type Slab, type SlabMode, type TerminalData } from "@/lib/terminal/types";
-import type { Action } from "./store";
+import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
 
 interface Form {
@@ -28,7 +28,7 @@ const empty = (clientCode = "", segment: Segment = "NSEFUT"): Form => ({
 const n = (s: string) => Number(s) || 0;
 const show = (v: number) => (v ? String(v) : "");
 
-export function BrokerageMaster({ data, dispatch }: { data: TerminalData; dispatch: Dispatch<Action> }) {
+export function BrokerageMaster({ data, actions }: { data: TerminalData; actions: TerminalActions }) {
   const [form, setForm] = useState<Form>(() => empty());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -39,7 +39,7 @@ export function BrokerageMaster({ data, dispatch }: { data: TerminalData; dispat
   const isFix = form.mode === "FIX";
   const unit = isFix ? "₹/lot" : "%";
 
-  const save = () => {
+  const save = async () => {
     if (!account) return setMessage({ ok: false, text: "Select a valid account" });
     if (form.scriptWise && !form.script) return setMessage({ ok: false, text: "Select script for script-wise slab" });
     const slab: Omit<Slab, "id"> & { id?: number } = {
@@ -58,7 +58,8 @@ export function BrokerageMaster({ data, dispatch }: { data: TerminalData; dispat
       minPct: n(form.minPct),
       minPctOnDel: n(form.minPctOnDel),
     };
-    dispatch({ type: "saveSlab", slab });
+    const res = await actions.saveSlab(slab);
+    if (!res.ok) return setMessage({ ok: false, text: `Not saved: ${res.error}` });
     setMessage({ ok: true, text: `Slab saved for ${account.code} ${form.segment}${form.scriptWise ? ` / ${form.script}` : ""}. Net rates recalculated.` });
     setEditingId(null);
     setForm(empty(account.code, form.segment));
@@ -74,9 +75,10 @@ export function BrokerageMaster({ data, dispatch }: { data: TerminalData; dispat
     setMessage(null);
   };
 
-  const remove = (s: Slab) => {
+  const remove = async (s: Slab) => {
     if (!confirm(`Delete ${s.segment}${s.scriptWise ? ` / ${s.script}` : ""} slab for ${s.clientCode}?`)) return;
-    dispatch({ type: "deleteSlab", id: s.id });
+    const res = await actions.deleteSlab(s.id);
+    if (!res.ok) return setMessage({ ok: false, text: `Not deleted: ${res.error}` });
     if (editingId === s.id) setEditingId(null);
   };
 

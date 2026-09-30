@@ -1,87 +1,113 @@
 "use client";
 
-import { useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as server from "@/app/actions";
+import type { Result } from "@/app/actions";
+import { createClient } from "@/lib/supabase/client";
+import {
+  accountFromRow, slabFromRow, tradeFromRow,
+  type AccountRow, type SlabInput, type SlabRow, type TradeInput, type TradeRow,
+} from "@/lib/terminal/db";
 import { computeTradeCalcs } from "@/lib/terminal/engine";
-import { createEmptyData, INSTRUMENTS } from "@/lib/terminal/seed";
-import type { Account, Slab, TerminalData, Trade } from "@/lib/terminal/types";
+import { INSTRUMENTS } from "@/lib/terminal/seed";
+import type { Account, TerminalData } from "@/lib/terminal/types";
 
-const STORAGE_KEY = "tradeterminal.v2";
+type Table = "accounts" | "brokerage_slabs" | "trades";
+const ORDER: Record<Table, string> = { accounts: "code", brokerage_slabs: "id", trades: "id" };
+const PAGE = 1000; // Supabase returns at most 1000 rows per request
 
-export type Action =
-  | { type: "saveTrade"; trade: Omit<Trade, "id"> & { id?: number } }
-  | { type: "deleteTrade"; id: number }
-  | { type: "saveSlab"; slab: Omit<Slab, "id"> & { id?: number } }
-  | { type: "deleteSlab"; id: number }
-  | { type: "saveAccount"; account: Account; originalCode?: string }
-  | { type: "deleteAccount"; code: string }
-  | { type: "reset" };
+type Supabase = ReturnType<typeof createClient>;
 
-function reducer(state: TerminalData, action: Action): TerminalData {
-  switch (action.type) {
-    case "saveTrade": {
-      const { id, ...rest } = action.trade;
-      if (id != null) return { ...state, trades: state.trades.map((t) => (t.id === id ? { ...rest, id } : t)) };
-      return { ...state, trades: [...state.trades, { ...rest, id: state.nextTradeId }], nextTradeId: state.nextTradeId + 1 };
-    }
-    case "deleteTrade":
-      return { ...state, trades: state.trades.filter((t) => t.id !== action.id) };
-    case "saveSlab": {
-      const { id, ...rest } = action.slab;
-      // One slab per client + segment + script scope: saving the same scope updates it.
-      const existing =
-        id ??
-        state.slabs.find(
-          (s) => s.clientCode === rest.clientCode && s.segment === rest.segment &&
-            s.scriptWise === rest.scriptWise && s.script === rest.script
-        )?.id;
-      if (existing != null) return { ...state, slabs: state.slabs.map((s) => (s.id === existing ? { ...rest, id: existing } : s)) };
-      return { ...state, slabs: [...state.slabs, { ...rest, id: state.nextSlabId }], nextSlabId: state.nextSlabId + 1 };
-    }
-    case "deleteSlab":
-      return { ...state, slabs: state.slabs.filter((s) => s.id !== action.id) };
-    case "saveAccount": {
-      const orig = action.originalCode;
-      if (orig) {
-        const recode = <T extends { clientCode: string }>(x: T): T =>
-          x.clientCode === orig ? { ...x, clientCode: action.account.code } : x;
-        return {
-          ...state,
-          accounts: state.accounts.map((a) => (a.code === orig ? action.account : a)),
-          trades: state.trades.map(recode),
-          slabs: state.slabs.map(recode),
-        };
-      }
-      return { ...state, accounts: [...state.accounts, action.account] };
-    }
-    case "deleteAccount":
-      return {
-        ...state,
-        accounts: state.accounts.filter((a) => a.code !== action.code),
-        slabs: state.slabs.filter((s) => s.clientCode !== action.code),
-      };
-    case "reset":
-      return createEmptyData();
+async function fetchAll<T>(supabase: Supabase, table: Table): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from(table).select("*").order(ORDER[table]).range(from, from + PAGE - 1);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    rows.push(...(data as T[]));
+    if (data.length < PAGE) return rows;
   }
 }
 
-function load(): TerminalData {
-  try {
-    localStorage.removeItem("tradeterminal.v1"); // old demo data
-
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as TerminalData;
-  } catch {
-    // Corrupt storage falls back to seed data.
-  }
-  return createEmptyData();
+async function load(supabase: Supabase, table: Table): Promise<Partial<TerminalData>> {
+  if (table === "accounts") return { accounts: (await fetchAll<AccountRow>(supabase, table)).map(accountFromRow) };
+  if (table === "brokerage_slabs") return { slabs: (await fetchAll<SlabRow>(supabase, table)).map(slabFromRow) };
+  return { trades: (await fetchAll<TradeRow>(supabase, table)).map(tradeFromRow) };
 }
 
-/** Terminal state, persisted to localStorage. Only rendered client-side (ssr: false). */
+export interface TerminalActions {
+  saveTrade(trade: TradeInput): Promise<Result<unknown>>;
+  deleteTrade(id: number): Promise<Result<unknown>>;
+  saveSlab(slab: SlabInput): Promise<Result<unknown>>;
+  deleteSlab(id: number): Promise<Result<unknown>>;
+  saveAccount(account: Account, originalCode?: string): Promise<Result<unknown>>;
+  deleteAccount(code: string): Promise<Result<unknown>>;
+}
+
+/**
+ * Terminal data from Supabase. Writes go through server actions (which stamp
+ * user + IP); every table is reloaded after a write and whenever another
+ * operator changes it (Supabase Realtime).
+ */
 export function useTerminalStore() {
-  const [data, dispatch] = useReducer(reducer, undefined, load);
+  const supabase = useMemo(() => createClient(), []);
+  const [data, setData] = useState<TerminalData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timers = useRef<Partial<Record<Table, ReturnType<typeof setTimeout>>>>({});
+
+  const reload = useCallback(
+    async (table: Table) => {
+      try {
+        const part = await load(supabase, table);
+        setData((d) => (d ? { ...d, ...part } : d));
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [supabase]
+  );
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
-  const calcs = useMemo(() => computeTradeCalcs(data.trades, data.slabs, INSTRUMENTS), [data.trades, data.slabs]);
-  return { data, dispatch, calcs };
+    let cancelled = false;
+    Promise.all((["accounts", "brokerage_slabs", "trades"] as Table[]).map((t) => load(supabase, t)))
+      .then((parts) => {
+        if (!cancelled) setData(Object.assign({ accounts: [], slabs: [], trades: [] }, ...parts));
+      })
+      .catch((e: Error) => !cancelled && setError(e.message));
+
+    const pending = timers.current;
+    const channel = supabase.channel("terminal-changes");
+    for (const table of ["accounts", "brokerage_slabs", "trades"] as Table[]) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, () => {
+        clearTimeout(pending[table]);
+        pending[table] = setTimeout(() => reload(table), 250);
+      });
+    }
+    channel.subscribe();
+    return () => {
+      cancelled = true;
+      Object.values(pending).forEach(clearTimeout);
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, reload]);
+
+  const actions = useMemo<TerminalActions>(() => {
+    const after = <T,>(tables: Table[]) => async (res: Result<T>) => {
+      if (res.ok) await Promise.all(tables.map(reload));
+      return res;
+    };
+    return {
+      saveTrade: (t) => server.saveTrade(t).then(after(["trades"])),
+      deleteTrade: (id) => server.deleteTrade(id).then(after(["trades"])),
+      saveSlab: (s) => server.saveSlab(s).then(after(["brokerage_slabs"])),
+      deleteSlab: (id) => server.deleteSlab(id).then(after(["brokerage_slabs"])),
+      saveAccount: (a, orig) => server.saveAccount(a, orig).then(after(["accounts", "brokerage_slabs", "trades"])),
+      deleteAccount: (code) => server.deleteAccount(code).then(after(["accounts", "brokerage_slabs"])),
+    };
+  }, [reload]);
+
+  const calcs = useMemo(
+    () => computeTradeCalcs(data?.trades ?? [], data?.slabs ?? [], INSTRUMENTS),
+    [data?.trades, data?.slabs]
+  );
+  return { data, error, actions, calcs };
 }

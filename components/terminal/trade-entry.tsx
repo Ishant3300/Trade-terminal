@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
-import { INSTRUMENTS, TERMINAL_IP, TERMINAL_USER } from "@/lib/terminal/seed";
+import { INSTRUMENTS } from "@/lib/terminal/seed";
 import { DERIVATIVE_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
-import type { Action } from "./store";
+import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
 
 interface Form {
@@ -35,16 +35,17 @@ const initialForm = (): Form => ({
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
 
 export function TradeEntry({
-  data, dispatch, calcs,
+  data, actions, calcs,
 }: {
   data: TerminalData;
-  dispatch: Dispatch<Action>;
+  actions: TerminalActions;
   calcs: Map<number, TradeCalc>;
 }) {
   const [form, setForm] = useState<Form>(initialForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const dateRef = useRef<HTMLInputElement>(null);
   const valanRef = useRef<HTMLInputElement>(null);
@@ -117,8 +118,8 @@ export function TradeEntry({
       qty,
       rate,
       clientCode: account.code,
-      user: TERMINAL_USER,
-      ip: TERMINAL_IP,
+      user: "",
+      ip: "",
       addTime: original?.addTime ?? `${form.date} ${toTimeStr(new Date())}`,
     };
   }, [form, inst, account, isOpt, editingId, data.trades]);
@@ -144,7 +145,8 @@ export function TradeEntry({
     focus?.focus();
   };
 
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
     if (!inst) return fail(`Invalid script "${form.script}" for ${form.segment}`, scriptRef.current);
     const original = editingId != null ? data.trades.find((t) => t.id === editingId) : undefined;
     if (original?.script !== inst.name) {
@@ -162,7 +164,10 @@ export function TradeEntry({
     if (!account) return fail(`Invalid client code "${form.clientCode}"`, clientRef.current);
     if (!draft) return;
 
-    dispatch({ type: "saveTrade", trade: editingId != null ? draft : { ...draft, id: undefined } });
+    setSaving(true);
+    const res = await actions.saveTrade(editingId != null ? draft : { ...draft, id: undefined });
+    setSaving(false);
+    if (!res.ok) return fail(`Not saved: ${res.error}`);
     const net = draftCalc ? fmt2(draftCalc.netRate) : fmt2(rate);
     setMessage({
       ok: true,
@@ -184,9 +189,10 @@ export function TradeEntry({
     setTimeout(() => qtyRef.current?.focus(), 0);
   };
 
-  const remove = (t: Trade) => {
+  const remove = async (t: Trade) => {
     if (!confirm(`Delete trade #${t.id}: ${t.side === "B" ? "BUY" : "SELL"} ${t.qty} ${t.script} @ ${t.rate} (${t.clientCode})?`)) return;
-    dispatch({ type: "deleteTrade", id: t.id });
+    const res = await actions.deleteTrade(t.id);
+    if (!res.ok) return setMessage({ ok: false, text: `Not deleted: ${res.error}` });
     if (editingId === t.id) resetForm();
     setMessage({ ok: true, text: `Trade #${t.id} deleted` });
   };
@@ -352,8 +358,8 @@ export function TradeEntry({
                 style={{ fontWeight: 700, color: form.side === "B" ? "#0d47a1" : "#b71c1c" }} />
             </Field>
             <div className="flex gap-1">
-              <button ref={saveRef} type="button" className="tt-btn tt-btn-save" onClick={save}>
-                {editingId != null ? "Update" : "Save"}
+              <button ref={saveRef} type="button" className="tt-btn tt-btn-save" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : editingId != null ? "Update" : "Save"}
               </button>
               <button type="button" className="tt-btn" onClick={() => { resetForm(); setMessage(null); }}>Cancel</button>
             </div>
