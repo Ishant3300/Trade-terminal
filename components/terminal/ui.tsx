@@ -38,6 +38,7 @@ export function Suggest({
   placeholder,
   width,
   invalid,
+  allowSign,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -46,13 +47,23 @@ export function Suggest({
   placeholder?: string;
   width?: number;
   invalid?: boolean;
+  /** Let "+" / "-" type into the box instead of acting as Buy/Sell shortcuts. */
+  allowSign?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hl, setHl] = useState(0);
   const q = value.trim().toUpperCase();
+  // Rank: exact symbol ("NIFTY" → "NIFTY 27OCT2026"), then prefix, then anywhere.
+  const rank = (o: SuggestOption) => {
+    const v = o.value.toUpperCase();
+    return v === q || v.startsWith(q + " ") ? 0 : v.startsWith(q) ? 1 : 2;
+  };
   const matches = options
     .filter((o) => !q || o.value.toUpperCase().includes(q) || o.label.toUpperCase().includes(q))
-    .slice(0, 30);
+    .map((o, i) => ({ o, i, r: q ? rank(o) : 0 }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .slice(0, 40)
+    .map((m) => m.o);
   const exact = matches.length === 1 && matches[0].value.toUpperCase() === q;
   const showList = open && matches.length > 0 && !exact;
   const active = Math.min(hl, matches.length - 1);
@@ -70,6 +81,7 @@ export function Suggest({
         style={{ width: "100%" }}
         value={value}
         placeholder={placeholder}
+        data-allow-sign={allowSign ? "1" : undefined}
         autoComplete="off"
         spellCheck={false}
         onChange={(e) => {

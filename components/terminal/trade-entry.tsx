@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch } from "react";
 import {
-  computeTradeCalcs, fmt2, fmt0, findInstrument, instrumentKey, lotFromQty, snapQty,
+  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS, TERMINAL_IP, TERMINAL_USER } from "@/lib/terminal/seed";
@@ -146,6 +146,11 @@ export function TradeEntry({
 
   const save = () => {
     if (!inst) return fail(`Invalid script "${form.script}" for ${form.segment}`, scriptRef.current);
+    const original = editingId != null ? data.trades.find((t) => t.id === editingId) : undefined;
+    if (original?.script !== inst.name) {
+      if (!findListed(INSTRUMENTS, form.segment, inst.name)) return fail(`${inst.name} is not a listed ${form.segment} contract`, scriptRef.current);
+      if (inst.expiry && inst.expiry < form.date) return fail(`${inst.name} expired on ${fmtDate(inst.expiry)}`, scriptRef.current);
+    }
     if (isOpt && !form.option) return fail("Select CE / PE for option trade", optionRef.current);
     if (isOpt && !(num(form.strike) > 0)) return fail("Enter strike price", strikeRef.current);
     const qty = num(form.qty);
@@ -242,7 +247,13 @@ export function TradeEntry({
   }, [data.trades, form.date, search, nameOf]);
 
   const buyCount = rows.filter((t) => t.side === "B").length;
-  const scriptOptions = INSTRUMENTS.filter((i) => i.segment === form.segment).map((i) => ({ value: i.name, label: i.name, hint: `Lot ${i.lotSize}` }));
+  const scriptOptions = useMemo(
+    () =>
+      INSTRUMENTS.filter((i) => i.segment === form.segment && (!i.expiry || i.expiry >= form.date)).map((i) => ({
+        value: i.name, label: i.name, hint: `Lot ${i.lotSize}`,
+      })),
+    [form.segment, form.date]
+  );
   const clientOptions = data.accounts.map((a) => ({ value: a.code, label: `${a.code} - ${a.name}`, hint: a.type }));
   const sideName = form.side === "B" ? "BUY" : "SELL";
 
@@ -300,7 +311,7 @@ export function TradeEntry({
           {/* Entry row */}
           <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
             <Field label="Script Name" required>
-              <Suggest inputRef={scriptRef} value={form.script} onChange={setScript} options={scriptOptions}
+              <Suggest inputRef={scriptRef} allowSign value={form.script} onChange={setScript} options={scriptOptions}
                 width={180} placeholder="NIFTY / CRUDEOIL…" invalid={!!form.script && !inst} />
             </Field>
             <Field label="Option" width={58}>

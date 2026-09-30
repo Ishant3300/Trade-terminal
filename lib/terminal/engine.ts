@@ -1,3 +1,4 @@
+import { FO_LOTS } from "./fo-master";
 import {
   DERIVATIVE_SEGMENTS,
   type Account,
@@ -53,9 +54,44 @@ export const fmt0 = (n: number) => nf0.format(n);
 // Script & lot size engine
 // ---------------------------------------------------------------------------
 
-export function findInstrument(instruments: Instrument[], segment: Segment, name: string) {
-  const key = name.trim().toUpperCase();
-  return instruments.find((i) => i.segment === segment && i.name === key);
+/** "NIFTY" + "2026-10-27" → "NIFTY 27OCT2026" */
+export function contractName(symbol: string, expiry: string): string {
+  const [y, m, d] = expiry.split("-");
+  return `${symbol} ${d}${MONTHS[Number(m) - 1]}${y}`;
+}
+
+/** "NIFTY 27OCT2026" → { symbol: "NIFTY", expiry: "2026-10-27" } */
+export function parseContract(name: string): { symbol: string; expiry: string } | null {
+  const m = /^(\S+) (\d{2})([A-Z]{3})(\d{4})$/.exec(name.trim().toUpperCase());
+  const month = m ? MONTHS.indexOf(m[3]) : -1;
+  if (!m || month < 0) return null;
+  return { symbol: m[1], expiry: `${m[4]}-${pad(month + 1)}-${m[2]}` };
+}
+
+const instrumentIndex = new WeakMap<Instrument[], Map<string, Instrument>>();
+
+/** Contract currently in the script master (listed), or undefined. */
+export function findListed(instruments: Instrument[], segment: Segment, name: string) {
+  let index = instrumentIndex.get(instruments);
+  if (!index) {
+    index = new Map(instruments.map((i) => [`${i.segment}|${i.name}`, i]));
+    instrumentIndex.set(instruments, index);
+  }
+  return index.get(`${segment}|${name.trim().toUpperCase()}`);
+}
+
+/**
+ * Listed contract, or — for NSE F&O contracts that have since expired and
+ * dropped out of the master — one rebuilt from the symbol's lot size, so old
+ * trades keep their lot size and script-wise slabs.
+ */
+export function findInstrument(instruments: Instrument[], segment: Segment, name: string): Instrument | undefined {
+  const listed = findListed(instruments, segment, name);
+  if (listed || (segment !== "NSEFUT" && segment !== "NSEOPT")) return listed;
+  const parsed = parseContract(name);
+  const lotSize = parsed ? FO_LOTS[parsed.symbol] : undefined;
+  if (!parsed || !lotSize) return undefined;
+  return { name: name.trim().toUpperCase(), symbol: parsed.symbol, segment, lotSize, expiry: parsed.expiry };
 }
 
 export function qtyFromLot(lot: number, lotSize: number): number {

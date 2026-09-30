@@ -1,20 +1,31 @@
+import { contractName, parseContract } from "./engine";
+import { FO_DEFAULT_EXPIRIES, FO_EXPIRY_OVERRIDES, FO_LOTS } from "./fo-master";
 import type { Instrument, Segment, TerminalData } from "./types";
 
 export const TERMINAL_USER = "Jiten";
 export const TERMINAL_IP = "192.168.1.25";
 
 const inst = (name: string, symbol: string, segment: Segment, lotSize: number): Instrument => ({
-  name, symbol, segment, lotSize,
+  name, symbol, segment, lotSize, expiry: parseContract(name)?.expiry,
 });
 
+/** Every NSE F&O contract in the generated master (futures + option expiries). */
+function nseFoInstruments(): Instrument[] {
+  const out: Instrument[] = [];
+  for (const [symbol, lotSize] of Object.entries(FO_LOTS)) {
+    const custom = FO_EXPIRY_OVERRIDES[symbol];
+    for (const expiry of custom?.fut ?? FO_DEFAULT_EXPIRIES.fut) {
+      out.push({ name: contractName(symbol, expiry), symbol, segment: "NSEFUT", lotSize, expiry });
+    }
+    for (const expiry of custom?.opt ?? FO_DEFAULT_EXPIRIES.opt) {
+      out.push({ name: contractName(symbol, expiry), symbol, segment: "NSEOPT", lotSize, expiry });
+    }
+  }
+  return out;
+}
+
 export const INSTRUMENTS: Instrument[] = [
-  inst("NIFTY 27OCT2026", "NIFTY", "NSEFUT", 25),
-  inst("BANKNIFTY 27OCT2026", "BANKNIFTY", "NSEFUT", 15),
-  inst("RELIANCE 27OCT2026", "RELIANCE", "NSEFUT", 500),
-  inst("BHEL 27OCT2026", "BHEL", "NSEFUT", 2625),
-  inst("SBIN 27OCT2026", "SBIN", "NSEFUT", 750),
-  inst("NIFTY 27OCT2026", "NIFTY", "NSEOPT", 25),
-  inst("BANKNIFTY 27OCT2026", "BANKNIFTY", "NSEOPT", 15),
+  ...nseFoInstruments(),
   inst("CRUDEOIL 19OCT2026", "CRUDEOIL", "MCXFUT", 100),
   inst("GOLDM 05NOV2026", "GOLDM", "MCXFUT", 10),
   inst("SILVERM 30NOV2026", "SILVERM", "MCXFUT", 5),

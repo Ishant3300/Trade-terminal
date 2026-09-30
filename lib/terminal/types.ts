@@ -14,6 +14,8 @@ export interface Instrument {
   symbol: string;
   segment: Segment;
   lotSize: number;
+  /** Contract expiry (YYYY-MM-DD) for derivatives. */
+  expiry?: string;
 }
 
 export interface Trade {
