@@ -72,10 +72,21 @@ create index if not exists trades_trade_date_idx on public.trades (trade_date);
 create index if not exists trades_client_code_idx on public.trades (client_code);
 
 -- ---------------------------------------------------------------------------
+-- Angel One SmartAPI session, shared by all server instances (one row)
+-- ---------------------------------------------------------------------------
+create table if not exists public.broker_session (
+  id integer primary key check (id = 1),
+  jwt text not null,
+  day date not null,
+  updated_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
 -- Lock down: no access for the publishable (anon) key or Supabase logins
 -- ---------------------------------------------------------------------------
 alter table public.accounts enable row level security;
 alter table public.brokerage_slabs enable row level security;
 alter table public.trades enable row level security;
+alter table public.broker_session enable row level security;
 
-revoke all on table public.accounts, public.brokerage_slabs, public.trades from anon, authenticated;
+revoke all on table public.accounts, public.brokerage_slabs, public.trades, public.broker_session from anon, authenticated;

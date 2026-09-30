@@ -2,11 +2,12 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
-  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, lotFromQty, snapQty,
+  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, quoteKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import { DERIVATIVE_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
+import { useLiveQuotes } from "./quotes";
 import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
 
@@ -16,6 +17,7 @@ interface Form {
   segment: Segment;
   side: Side;
   tradeType: TradeType;
+  checkHL: boolean;
   script: string;
   option: OptionType;
   strike: string;
@@ -28,7 +30,7 @@ interface Form {
 const today = () => toDateStr(new Date());
 
 const initialForm = (): Form => ({
-  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM",
+  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: false,
   script: "", option: "", strike: "", lot: "", qty: "", rate: "", clientCode: "",
 });
 
@@ -64,6 +66,15 @@ export function TradeEntry({
   const isOpt = form.segment === "NSEOPT";
   const inst = findInstrument(INSTRUMENTS, form.segment, form.script);
   const lotSize = inst?.lotSize ?? 0;
+  const liveKey = !inst
+    ? null
+    : !isOpt
+      ? quoteKey({ segment: form.segment, script: inst.name, option: "", strike: 0 })
+      : form.option && num(form.strike) > 0
+        ? quoteKey({ segment: form.segment, script: inst.name, option: form.option, strike: num(form.strike) })
+        : null;
+  const feed = useLiveQuotes(liveKey ? [liveKey] : [], 2000);
+  const tick = liveKey ? feed.quotes[liveKey] ?? undefined : undefined;
   const account = data.accounts.find((a) => a.code === form.clientCode.trim().toUpperCase());
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -135,7 +146,7 @@ export function TradeEntry({
 
   // ---- Actions ---------------------------------------------------------------------
   const resetForm = (keepHeader = true) => {
-    setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType } : initialForm()));
+    setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType, checkHL: f.checkHL } : initialForm()));
     setEditingId(null);
     setTimeout(() => scriptRef.current?.focus(), 0);
   };
@@ -161,6 +172,11 @@ export function TradeEntry({
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
     const rate = num(form.rate);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
+    if (form.checkHL) {
+      if (!tick) return fail("Check HL: no live high/low for this contract — untick Check HL to save", rateRef.current);
+      if (rate < tick.low || rate > tick.high)
+        return fail(`Rate ${fmt2(rate)} outside day range L ${fmt2(tick.low)} – H ${fmt2(tick.high)}`, rateRef.current);
+    }
     if (!account) return fail(`Invalid client code "${form.clientCode}"`, clientRef.current);
     if (!draft) return;
 
@@ -311,6 +327,18 @@ export function TradeEntry({
                   <input type="radio" name="ttype" checked={form.tradeType === tt} onChange={() => set("tradeType", tt)} /> {tt}
                 </label>
               ))}
+            </div>
+            <label className="tt-check" style={{ height: 24, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
+              <input type="checkbox" checked={form.checkHL} onChange={(e) => set("checkHL", e.target.checked)} /> Check HL
+            </label>
+            <div className="tt-ticker" style={{ marginLeft: "auto" }}
+              title={feed.status === "not-configured" ? "Live feed not configured (Angel One)" : feed.status === "error" ? `Live feed error: ${feed.message}` : liveKey ?? "Select a script"}>
+              <span><i className={`tt-feed-dot ${liveKey && tick ? "on" : feed.status === "error" ? "err" : ""}`} />{inst ? inst.symbol : "—"}</span>
+              <span>L: <b className="l">{tick ? fmt2(tick.low) : "—"}</b></span>
+              <span className="m-click" onClick={() => tick && set("rate", String(tick.ltp))} title="Click to use as Rate">
+                M: <b className="m">{tick ? fmt2(tick.ltp) : "—"}</b>
+              </span>
+              <span style={{ borderRight: 0 }}>H: <b className="h">{tick ? fmt2(tick.high) : "—"}</b></span>
             </div>
           </div>
 

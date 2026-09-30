@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint",
-    "update:fo": "node scripts/update-fo-master.mjs"
+    "update:fo": "node scripts/update-fo-master.mjs && node scripts/update-angel-tokens.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

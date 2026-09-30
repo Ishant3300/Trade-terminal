@@ -113,6 +113,11 @@ export function instrumentKey(t: Pick<Trade, "segment" | "script" | "option" | "
   return `${t.segment}|${t.script}|${t.option}|${t.option ? t.strike : ""}`;
 }
 
+/** Live-quote key; matches scripts/update-angel-tokens.mjs. */
+export function quoteKey(t: Pick<Trade, "segment" | "script" | "option" | "strike">): string {
+  return t.option ? `${t.segment}|${t.script}|${t.strike}|${t.option}` : `${t.segment}|${t.script}`;
+}
+
 export function contractLabel(t: Pick<Trade, "script" | "option" | "strike">): string {
   return t.option ? `${t.script} ${t.strike} ${t.option}` : t.script;
 }
@@ -267,7 +272,9 @@ export interface Position {
   avgBuy: number; // net-rate average
   avgSell: number;
   netQty: number;
-  lastRate: number; // last traded rate in this contract
+  lastRate: number; // live price, else last traded rate in this contract
+  live: boolean; // lastRate came from the live feed
+  quoteKey: string;
   realized: number; // on net rates (brokerage included)
   mtm: number; // unrealized on open qty vs last rate, net rates
   grossRealized: number; // on trade rates
@@ -275,8 +282,15 @@ export interface Position {
   brokerage: number;
 }
 
-/** MTM is marked to the last rate traded in each contract (no market data feed). */
-export function computePositions(trades: Trade[], calcs: Map<number, TradeCalc>): Position[] {
+/**
+ * MTM is marked to the live price when `livePrices` (by quoteKey) has one,
+ * otherwise to the last rate traded in the contract.
+ */
+export function computePositions(
+  trades: Trade[],
+  calcs: Map<number, TradeCalc>,
+  livePrices: Record<string, number> = {}
+): Position[] {
   const lastTraded = new Map<string, number>();
   for (const t of [...trades].sort((a, b) => a.addTime.localeCompare(b.addTime) || a.id - b.id)) {
     lastTraded.set(instrumentKey(t), t.rate);
@@ -304,7 +318,8 @@ export function computePositions(trades: Trade[], calcs: Map<number, TradeCalc>)
   const out: Position[] = [];
   for (const [key, p] of map) {
     const t = p.sample;
-    const lastRate = lastTraded.get(instrumentKey(t)) ?? t.rate;
+    const live = livePrices[quoteKey(t)];
+    const lastRate = live ?? lastTraded.get(instrumentKey(t)) ?? t.rate;
     const avgBuy = p.bq ? p.bn / p.bq : 0;
     const avgSell = p.sq ? p.sn / p.sq : 0;
     const gAvgBuy = p.bq ? p.bg / p.bq : 0;
@@ -324,6 +339,8 @@ export function computePositions(trades: Trade[], calcs: Map<number, TradeCalc>)
       avgSell,
       netQty,
       lastRate,
+      live: live != null,
+      quoteKey: quoteKey(t),
       realized: (avgSell - avgBuy) * matched,
       mtm: unreal(avgBuy, avgSell),
       grossRealized: (gAvgSell - gAvgBuy) * matched,

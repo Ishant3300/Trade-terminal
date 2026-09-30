@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { getQuotes, type FeedStatus, type Quote } from "@/lib/angel";
 import { checkCredentials, createSessionToken, SESSION_COOKIE, SESSION_HOURS, verifySessionToken } from "@/lib/auth";
 import { requestIp } from "@/lib/request-ip";
 import { db } from "@/lib/supabase/server";
@@ -143,4 +144,21 @@ export async function deleteAccount(code: string): Promise<Result> {
   if (!(await sessionUser())) return NOT_LOGGED_IN;
   const { error } = await db().from("accounts").delete().eq("code", code);
   return error ? { ok: false, error: friendly(error) } : { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// Live prices (Angel One SmartAPI)
+// ---------------------------------------------------------------------------
+
+export interface QuotesResult {
+  status: FeedStatus;
+  message?: string;
+  quotes: Record<string, Quote | null>;
+}
+
+/** Quotes for quote keys (see quoteKey()); capped to keep within Angel's rate limits. */
+export async function liveQuotes(keys: string[]): Promise<QuotesResult> {
+  if (!(await sessionUser())) return { status: "error", message: NOT_LOGGED_IN.error, quotes: {} };
+  if (!Array.isArray(keys)) return { status: "error", message: "Bad request", quotes: {} };
+  return getQuotes(keys.filter((k) => typeof k === "string").slice(0, 250));
 }

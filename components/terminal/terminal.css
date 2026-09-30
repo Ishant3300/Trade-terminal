@@ -287,6 +287,47 @@ textarea.tt-input {
 .tt-entry.sell .tt-side-tag {
   background: #dc3545;
 }
+.tt-ticker {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  border: 1px solid #1f242d;
+  background: #111820;
+  color: #d8dde5;
+  font-family: Consolas, "Lucida Console", monospace;
+  font-size: 11px;
+}
+.tt-ticker span {
+  padding: 0 8px;
+  border-right: 1px solid #2f3845;
+  white-space: nowrap;
+}
+.tt-ticker b {
+  font-weight: 600;
+}
+.tt-ticker .l { color: #ff7b72; }
+.tt-ticker .m { color: #ffd866; }
+.tt-ticker .h { color: #5fe08a; }
+.tt-ticker .m-click {
+  cursor: pointer;
+}
+.tt-ticker .m-click:hover {
+  background: #1e2836;
+}
+.tt-feed-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  background: #5b6472;
+}
+.tt-feed-dot.on {
+  background: #3ddc6b;
+  box-shadow: 0 0 4px #3ddc6b;
+}
+.tt-feed-dot.err {
+  background: #ff5f56;
+}
 .tt-status {
   font-size: 11px;
   height: 20px;
