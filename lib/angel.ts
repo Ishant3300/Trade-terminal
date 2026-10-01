@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import tokens from "@/lib/terminal/angel-tokens.json";
 import { db } from "@/lib/supabase/server";
+import { parseContract } from "@/lib/terminal/engine";
 
 // Angel One SmartAPI market data, server-only.
 //
@@ -92,6 +93,15 @@ class AngelError extends Error {
   }
 }
 
+/** Angel's firewall answers blocked requests with an HTML "Request Rejected" page. */
+function describeNonJson(text: string): string {
+  if (!/^\s*</.test(text)) return text.slice(0, 160);
+  const support = /support id is:?\s*([\w-]+)/i.exec(text)?.[1];
+  if (/request rejected/i.test(text)) return `Blocked by Angel One firewall (Request Rejected${support ? `, Support ID ${support}` : ""})`;
+  const title = /<title>([^<]*)<\/title>/i.exec(text)?.[1]?.trim();
+  return `Unexpected HTML response${title ? `: ${title}` : ""}`;
+}
+
 async function post<T>(path: string, body: unknown, jwt?: string): Promise<T> {
   const res = await fetch(ROOT + path, { method: "POST", headers: headers(jwt), body: JSON.stringify(body), cache: "no-store" });
   const text = await res.text();
@@ -102,7 +112,7 @@ async function post<T>(path: string, body: unknown, jwt?: string): Promise<T> {
     // Rate limiting and gateway errors come back as plain text.
   }
   if (!res.ok || !(json?.status ?? json?.success)) {
-    const msg = json?.message || text.slice(0, 120) || `HTTP ${res.status}`;
+    const msg = json?.message || describeNonJson(text) || `HTTP ${res.status}`;
     throw new AngelError(msg, json?.errorcode || json?.errorCode || "", res.status);
   }
   return json.data;
@@ -244,4 +254,67 @@ export async function getQuotes(keys: string[]): Promise<{ status: FeedStatus; m
     for (const key of stale) quotes[key] = cache.get(key)?.quote ?? null;
     return { status: "error", message: lastError, quotes };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics (/feed-status)
+// ---------------------------------------------------------------------------
+
+export interface FeedCheck {
+  step: string;
+  ok: boolean;
+  detail: string;
+}
+
+const describe = (e: unknown) =>
+  e instanceof AngelError
+    ? `${e.message}${e.code ? ` (code ${e.code})` : ""}${e.http !== 200 ? ` [HTTP ${e.http}]` : ""}`
+    : e instanceof Error
+      ? e.message
+      : String(e);
+
+/** Step-by-step feed check: settings → server → Angel login → one NIFTY quote. Never reveals secrets. */
+export async function diagnoseFeed(): Promise<FeedCheck[]> {
+  const checks: FeedCheck[] = [];
+  const vars = ["ANGEL_API_KEY", "ANGEL_CLIENT_CODE", "ANGEL_PIN", "ANGEL_TOTP_SECRET"];
+  const missing = vars.filter((v) => !process.env[v]);
+  checks.push({ step: "Angel settings", ok: !missing.length, detail: missing.length ? `Missing: ${missing.join(", ")}` : "All 4 present" });
+
+  let ip = "unknown";
+  try {
+    ip = (await (await fetch("https://api.ipify.org", { cache: "no-store" })).text()).trim();
+  } catch {
+    // informational only
+  }
+  checks.push({ step: "Server", ok: true, detail: `Region ${process.env.VERCEL_REGION ?? "local"}, public IP ${ip}` });
+  if (missing.length) return checks;
+
+  let jwt: string;
+  try {
+    jwt = (await getSession(true)).jwt;
+    checks.push({ step: "Angel login", ok: true, detail: "Logged in" });
+  } catch (e) {
+    checks.push({ step: "Angel login", ok: false, detail: describe(e) });
+    return checks;
+  }
+
+  const today = istDay();
+  const niftyFut = Object.keys(TOKEN_MAP)
+    .filter((k) => k.startsWith("NSEFUT|NIFTY "))
+    .map((k) => ({ k, exp: parseContract(k.slice(7))?.expiry ?? "" }))
+    .filter((x) => x.exp >= today)
+    .sort((a, b) => a.exp.localeCompare(b.exp))[0]?.k;
+  if (!niftyFut) {
+    checks.push({ step: "Quote", ok: false, detail: "No NIFTY futures contract in angel-tokens.json — run npm run update:fo" });
+    return checks;
+  }
+  try {
+    const [exch, token] = TOKEN_MAP[niftyFut].split(":");
+    const f = (await fetchTokens({ [exch]: [token] }, jwt))[0];
+    checks.push({ step: "Quote", ok: !!f, detail: f ? `${niftyFut.slice(7)} LTP ${f.ltp}` : "Angel returned no data" });
+  } catch (e) {
+    checks.push({ step: "Quote", ok: false, detail: describe(e) });
+  }
+  blockedUntil = 0; // a successful check clears any back-off
+  return checks;
 }
