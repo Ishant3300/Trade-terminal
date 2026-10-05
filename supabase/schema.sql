@@ -68,6 +68,9 @@ create table if not exists public.trades (
   add_time timestamptz not null default now()
 );
 
+-- Client paid in full: no interest on this buy (added later; safe to re-run).
+alter table public.trades add column if not exists full_payment boolean not null default false;
+
 create index if not exists trades_trade_date_idx on public.trades (trade_date);
 create index if not exists trades_client_code_idx on public.trades (client_code);
 

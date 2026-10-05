@@ -93,13 +93,21 @@ export async function loadAll(): Promise<Result<TerminalData>> {
 export async function saveTrade(input: TradeInput): Promise<Result<Trade>> {
   const user = await sessionUser();
   if (!user) return NOT_LOGGED_IN;
-  const row = tradeToRow(input);
-  const query =
-    input.id != null
+  const write = (row: Partial<TradeRow>) =>
+    (input.id != null
       ? db().from("trades").update(row).eq("id", input.id)
-      : db().from("trades").insert({ ...row, user_name: user, ip: await requestIp() });
-  const { data, error } = await query.select().single<TradeRow>();
-  if (error) return { ok: false, error: friendly(error) };
+      : db().from("trades").insert({ ...row, user_name: user })
+    ).select().single<TradeRow>();
+  const row: Partial<TradeRow> = tradeToRow(input);
+  if (input.id == null) row.ip = await requestIp();
+  let { data, error } = await write(row);
+  // Database not yet migrated (no full_payment column): save without it.
+  if (error && /full_payment/.test(error.message)) {
+    if (input.fullPayment) return { ok: false, error: "Full Payment needs the database update — run supabase/schema.sql" };
+    delete row.full_payment;
+    ({ data, error } = await write(row));
+  }
+  if (error || !data) return { ok: false, error: error ? friendly(error) : "Not saved" };
   return { ok: true, data: tradeFromRow(data) };
 }
 

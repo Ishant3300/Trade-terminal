@@ -18,6 +18,7 @@ interface Form {
   side: Side;
   tradeType: TradeType;
   checkHL: boolean;
+  fullPayment: boolean;
   script: string;
   option: OptionType;
   strike: string;
@@ -30,7 +31,7 @@ interface Form {
 const today = () => toDateStr(new Date());
 
 const initialForm = (): Form => ({
-  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: false,
+  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: false, fullPayment: false,
   script: "", option: "", strike: "", lot: "", qty: "", rate: "", clientCode: "",
 });
 
@@ -129,6 +130,7 @@ export function TradeEntry({
       qty,
       rate,
       clientCode: account.code,
+      fullPayment: form.segment === "NSEEQ" && form.side === "B" && form.fullPayment,
       user: "",
       ip: "",
       addTime: original?.addTime ?? `${form.date} ${toTimeStr(new Date())}`,
@@ -190,7 +192,7 @@ export function TradeEntry({
       text: `${editingId != null ? "Updated" : "Saved"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${inst.name}${isOpt ? ` ${form.strike} ${form.option}` : ""} @ ${fmt2(rate)} (net ${net}) — ${account.code} ${account.name}`,
     });
     setEditingId(null);
-    setForm((f) => ({ ...f, lot: "", qty: "", rate: "" }));
+    setForm((f) => ({ ...f, lot: "", qty: "", rate: "", fullPayment: false }));
     setTimeout(() => lotRef.current?.focus(), 0);
   };
 
@@ -199,7 +201,7 @@ export function TradeEntry({
     setForm((f) => ({
       ...f, date: t.date, valan: t.valan, segment: t.segment, side: t.side, tradeType: t.tradeType,
       script: t.script, option: t.option, strike: t.strike ? String(t.strike) : "",
-      lot: String(t.lot), qty: String(t.qty), rate: String(t.rate), clientCode: t.clientCode,
+      lot: String(t.lot), qty: String(t.qty), rate: String(t.rate), clientCode: t.clientCode, fullPayment: !!t.fullPayment,
     }));
     setMessage({ ok: true, text: `Editing trade #${t.id} — change fields and press Alt+S / Save` });
     setTimeout(() => qtyRef.current?.focus(), 0);
@@ -331,6 +333,12 @@ export function TradeEntry({
             <label className="tt-check" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
               <input type="checkbox" checked={form.checkHL} onChange={(e) => set("checkHL", e.target.checked)} /> Check HL
             </label>
+            {form.segment === "NSEEQ" && form.side === "B" && (
+              <label className="tt-check" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}
+                title="Client paid the full amount — no interest is charged on this buy">
+                <input type="checkbox" checked={form.fullPayment} onChange={(e) => set("fullPayment", e.target.checked)} /> Full Payment
+              </label>
+            )}
             <div className="tt-ticker" style={{ marginLeft: "auto" }}
               title={feed.status === "not-configured" ? "Live feed not configured (Angel One)" : feed.status === "error" ? `Live feed error: ${feed.message}` : liveKey ?? "Select a script"}>
               <span><i className={`tt-feed-dot ${liveKey && tick ? "on" : feed.status === "error" ? "err" : ""}`} />{inst ? inst.symbol : "—"}</span>
@@ -438,7 +446,7 @@ export function TradeEntry({
                     <td>{t.segment}</td>
                     <td>{t.script}</td>
                     <td>{t.option ? `${t.strike} ${t.option}` : ""}</td>
-                    <td>{t.tradeType}</td>
+                    <td>{t.tradeType}{t.fullPayment && <span className="tt-muted" title="Full payment — no interest"> FP</span>}</td>
                     <td className={t.side === "B" ? "b-txt" : "s-txt"}>{t.side === "B" ? "BUY" : "SELL"}</td>
                     <td className="num">{fmt0(t.lot)}</td>
                     <td className="num">{fmt0(t.qty)}</td>

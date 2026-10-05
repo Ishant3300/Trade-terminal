@@ -49,6 +49,7 @@ export interface TradeRow {
   qty: number;
   rate: number;
   client_code: string;
+  full_payment?: boolean; // absent until schema.sql adds the column
   user_name: string;
   ip: string;
   add_time: string;
@@ -135,6 +136,7 @@ export const tradeFromRow = (r: TradeRow): Trade => {
     qty: r.qty,
     rate: Number(r.rate),
     clientCode: r.client_code,
+    fullPayment: !!r.full_payment,
     user: r.user_name,
     ip: r.ip,
     addTime: `${toDateStr(at)} ${toTimeStr(at)}`,
@@ -155,4 +157,5 @@ export const tradeToRow = (t: TradeInput) => ({
   qty: t.qty,
   rate: t.rate,
   client_code: t.clientCode,
+  full_payment: !!t.fullPayment,
 });

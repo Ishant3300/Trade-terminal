@@ -34,6 +34,8 @@ export interface Trade {
   qty: number;
   rate: number;
   clientCode: string;
+  /** Client paid the full amount: no interest on this buy. */
+  fullPayment?: boolean;
   user: string;
   ip: string;
   addTime: string; // YYYY-MM-DD HH:MM:SS
