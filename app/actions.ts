@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getQuotes, type FeedStatus, type Quote } from "@/lib/angel";
+import { getQuotes, streamSetup, type FeedStatus, type Quote, type StreamSetup } from "@/lib/angel";
 import { checkCredentials, createSessionToken, SESSION_COOKIE, SESSION_HOURS, verifySessionToken } from "@/lib/auth";
 import { requestIp } from "@/lib/request-ip";
 import { db } from "@/lib/supabase/server";
@@ -161,4 +161,11 @@ export async function liveQuotes(keys: string[]): Promise<QuotesResult> {
   if (!(await sessionUser())) return { status: "error", message: NOT_LOGGED_IN.error, quotes: {} };
   if (!Array.isArray(keys)) return { status: "error", message: "Bad request", quotes: {} };
   return getQuotes(keys.filter((k) => typeof k === "string").slice(0, 250));
+}
+
+/** Stream URL (read-only feed token) and Angel tokens for live WebSocket quotes. */
+export async function liveStreamSetup(keys: string[], refresh = false): Promise<StreamSetup> {
+  if (!(await sessionUser())) return { status: "error", message: NOT_LOGGED_IN.error, url: null, tokens: {} };
+  if (!Array.isArray(keys)) return { status: "error", message: "Bad request", url: null, tokens: {} };
+  return streamSetup(keys.filter((k) => typeof k === "string").slice(0, 900), refresh === true);
 }

@@ -77,9 +77,12 @@ create index if not exists trades_client_code_idx on public.trades (client_code)
 create table if not exists public.broker_session (
   id integer primary key check (id = 1),
   jwt text not null,
+  feed_token text,
   day date not null,
   updated_at timestamptz not null default now()
 );
+
+alter table public.broker_session add column if not exists feed_token text;
 
 -- ---------------------------------------------------------------------------
 -- Lock down: no access for the publishable (anon) key or Supabase logins

@@ -129,6 +129,8 @@ async function post<T>(path: string, body: unknown, jwt?: string): Promise<T> {
 
 interface Session {
   jwt: string;
+  /** Market-data-only token for the WebSocket stream (cannot place orders). */
+  feedToken: string;
   day: string; // IST date the login was made; sessions end daily
 }
 
@@ -140,8 +142,10 @@ const istDay = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0
 
 async function loadStoredSession(): Promise<Session | null> {
   try {
-    const { data } = await db().from("broker_session").select("jwt, day").eq("id", 1).maybeSingle();
-    return data?.jwt && data.day === istDay() ? { jwt: data.jwt, day: data.day } : null;
+    const { data } = await db().from("broker_session").select("jwt, feed_token, day").eq("id", 1).maybeSingle();
+    return data?.jwt && data.feed_token && data.day === istDay()
+      ? { jwt: data.jwt, feedToken: data.feed_token, day: data.day }
+      : null;
   } catch {
     return null; // table missing → memory-only session
   }
@@ -149,19 +153,19 @@ async function loadStoredSession(): Promise<Session | null> {
 
 async function storeSession(s: Session) {
   try {
-    await db().from("broker_session").upsert({ id: 1, jwt: s.jwt, day: s.day, updated_at: new Date().toISOString() });
+    await db().from("broker_session").upsert({ id: 1, jwt: s.jwt, feed_token: s.feedToken, day: s.day, updated_at: new Date().toISOString() });
   } catch {
     // Non-fatal: falls back to per-instance sessions.
   }
 }
 
 async function login(): Promise<Session> {
-  const data = await post<{ jwtToken: string }>("/rest/auth/angelbroking/user/v1/loginByPassword", {
+  const data = await post<{ jwtToken: string; feedToken: string }>("/rest/auth/angelbroking/user/v1/loginByPassword", {
     clientcode: process.env.ANGEL_CLIENT_CODE,
     password: process.env.ANGEL_PIN,
     totp: totp(process.env.ANGEL_TOTP_SECRET!),
   });
-  const s = { jwt: data.jwtToken, day: istDay() };
+  const s = { jwt: data.jwtToken, feedToken: data.feedToken, day: istDay() };
   await storeSession(s);
   return s;
 }
@@ -339,4 +343,39 @@ export async function diagnoseFeed(): Promise<FeedCheck[]> {
   }
   blockedUntil = 0; // a successful check clears any back-off
   return checks;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming (browser WebSocket)
+// ---------------------------------------------------------------------------
+
+export interface StreamSetup {
+  status: FeedStatus;
+  message?: string;
+  /** wss URL including the read-only feed token; null when unavailable. */
+  url: string | null;
+  /** quote key → "<angel exchange>:<token>" for the requested keys that exist. */
+  tokens: Record<string, string>;
+}
+
+/**
+ * What the browser needs to stream quotes straight from Angel: the stream URL
+ * (client code, API key and the market-data-only feed token — never the PIN,
+ * TOTP secret or trading JWT) and the Angel tokens for the requested keys.
+ */
+export async function streamSetup(keys: string[], refresh = false): Promise<StreamSetup> {
+  const tokens: Record<string, string> = {};
+  for (const k of keys) if (TOKEN_MAP[k]) tokens[k] = TOKEN_MAP[k];
+  if (!feedConfigured()) return { status: "not-configured", url: null, tokens };
+  try {
+    const s = await getSession(refresh);
+    const q = new URLSearchParams({
+      clientCode: process.env.ANGEL_CLIENT_CODE!,
+      feedToken: s.feedToken,
+      apiKey: process.env.ANGEL_API_KEY!,
+    });
+    return { status: "live", url: `wss://smartapisocket.angelone.in/smart-stream?${q}`, tokens };
+  } catch (e) {
+    return { status: "error", message: describe(e), url: null, tokens };
+  }
 }
