@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  addDays, computeInterest, computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
+  computeInterest, computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
 import { useLiveQuotes } from "./quotes";
@@ -12,13 +12,12 @@ interface Filters {
   segment: string;
   script: string;
   client: string;
-  from: string;
   to: string;
 }
 
 const defaults = (): Filters => {
   const today = toDateStr(new Date());
-  return { segment: "", script: "", client: "", from: addDays(today, -7), to: today };
+  return { segment: "", script: "", client: "", to: today };
 };
 
 export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number, TradeCalc> }) {
@@ -33,7 +32,6 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
       (!f.segment || t.segment === f.segment) &&
       (!q || contractLabel(t).includes(q)) &&
       (!f.client || t.clientCode === f.client) &&
-      (!f.from || t.date >= f.from) &&
       (!f.to || t.date <= f.to)
     );
   }, [data.trades, f]);
@@ -75,7 +73,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
   const exportPositions = () =>
     downloadCsv(
-      `net_position_${f.from}_${f.to}.csv`,
+      `net_position_as_on_${f.to}.csv`,
       ["Client Code", "Client", "Segment", "Script", "Buy Qty", "Avg Buy Rate", "Sell Qty", "Avg Sell Rate", "Net Qty", "LTP", "Realized P&L", "MTM"],
       positions.map((p) => [p.clientCode, nameOf.get(p.clientCode) ?? "", p.segment, p.label, p.buyQty, p.avgBuy.toFixed(4), p.sellQty, p.avgSell.toFixed(4), p.netQty, p.lastRate.toFixed(2), p.realized.toFixed(2), p.mtm.toFixed(2)])
     );
@@ -100,10 +98,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
               {data.accounts.map((a) => <option key={a.code} value={a.code}>{a.code} - {a.name}</option>)}
             </select>
           </Field>
-          <Field label="From" width={128}>
-            <input type="date" className="tt-input" value={draft.from} onChange={(e) => set("from", e.target.value)} />
-          </Field>
-          <Field label="To" width={128}>
+          <Field label="As on" width={128}>
             <input type="date" className="tt-input" value={draft.to} onChange={(e) => set("to", e.target.value)} />
           </Field>
           <button type="submit" className="tt-btn tt-btn-blue">View</button>
@@ -120,7 +115,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Net Position
+          Net Position <span className="tt-muted">— all trades up to {fmtDate(f.to)}</span>
           <span className="tt-badge" style={{ marginLeft: "auto" }}>Count: {positions.length}</span>
         </div>
         <div className="tt-grid-wrap" style={{ maxHeight: "46vh" }}>
