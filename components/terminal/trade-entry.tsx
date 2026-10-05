@@ -338,7 +338,15 @@ export function TradeEntry({
               <span className="m-click" onClick={() => tick && set("rate", String(tick.ltp))} title="Click to use as Rate">
                 M: <b className="m">{tick ? fmt2(tick.ltp) : "—"}</b>
               </span>
-              <span style={{ borderRight: 0 }}>H: <b className="h">{tick ? fmt2(tick.high) : "—"}</b></span>
+              <span>H: <b className="h">{tick ? fmt2(tick.high) : "—"}</b></span>
+              <span className="m-click" onClick={() => tick?.bid && set("rate", String(tick.bid))}
+                title={tick?.bid ? `Best bid: ${tick.bidQty} qty — click to use as Rate` : "No bid"}>
+                B: <b className="bid">{tick?.bid ? fmt2(tick.bid) : "—"}</b>
+              </span>
+              <span className="m-click" style={{ borderRight: 0 }} onClick={() => tick?.ask && set("rate", String(tick.ask))}
+                title={tick?.ask ? `Best ask: ${tick.askQty} qty — click to use as Rate` : "No offer"}>
+                A: <b className="ask">{tick?.ask ? fmt2(tick.ask) : "—"}</b>
+              </span>
             </div>
           </div>
 

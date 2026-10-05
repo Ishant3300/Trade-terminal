@@ -24,6 +24,11 @@ export interface Quote {
   high: number;
   low: number;
   close: number;
+  /** Best bid / ask from market depth; null when that side is empty. */
+  bid: number | null;
+  ask: number | null;
+  bidQty: number;
+  askQty: number;
 }
 
 export type FeedStatus = "live" | "not-configured" | "error";
@@ -187,12 +192,24 @@ interface Fetched {
   high: number;
   low: number;
   close: number;
+  depth?: { buy?: DepthLevel[]; sell?: DepthLevel[] };
 }
+
+interface DepthLevel {
+  price: number;
+  quantity: number;
+}
+
+/** Top of book; Angel pads empty depth levels with price 0. */
+const best = (levels: DepthLevel[] | undefined) => {
+  const top = levels?.find((l) => +l.price > 0 && +l.quantity > 0);
+  return top ? { price: +top.price, qty: +top.quantity } : null;
+};
 
 async function fetchTokens(byExchange: Record<string, string[]>, jwt: string) {
   const data = await post<{ fetched: Fetched[] }>(
     "/rest/secure/angelbroking/market/v1/quote/",
-    { mode: "OHLC", exchangeTokens: byExchange },
+    { mode: "FULL", exchangeTokens: byExchange },
     jwt
   );
   return data.fetched ?? [];
@@ -240,7 +257,12 @@ export async function getQuotes(keys: string[]): Promise<{ status: FeedStatus; m
       for (const f of fetched) {
         const key = keyByToken.get(`${f.exchange}:${f.symbolToken}`);
         if (!key) continue;
-        const quote = { ltp: +f.ltp, open: +f.open, high: +f.high, low: +f.low, close: +f.close };
+        const bid = best(f.depth?.buy);
+        const ask = best(f.depth?.sell);
+        const quote: Quote = {
+          ltp: +f.ltp, open: +f.open, high: +f.high, low: +f.low, close: +f.close,
+          bid: bid?.price ?? null, ask: ask?.price ?? null, bidQty: bid?.qty ?? 0, askQty: ask?.qty ?? 0,
+        };
         cache.set(key, { at: Date.now(), quote });
         quotes[key] = quote;
       }
