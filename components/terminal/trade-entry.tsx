@@ -49,6 +49,8 @@ export function TradeEntry({
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  /** Rate follows the live Ask (buy) / Bid (sell) until the user types a rate. */
+  const [rateLive, setRateLive] = useState(true);
 
   const dateRef = useRef<HTMLInputElement>(null);
   const valanRef = useRef<HTMLInputElement>(null);
@@ -76,18 +78,30 @@ export function TradeEntry({
         : null;
   const feed = useLiveQuotes(liveKey ? [liveKey] : [], 2000);
   const tick = liveKey ? feed.quotes[liveKey] ?? undefined : undefined;
+  const livePrice = tick ? (form.side === "B" ? tick.ask ?? tick.ltp : tick.bid ?? tick.ltp) : null;
+  const rateStr = rateLive && livePrice ? String(livePrice) : form.rate;
   const account = data.accounts.find((a) => a.code === form.clientCode.trim().toUpperCase());
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const setSide = (side: Side) => {
+    set("side", side);
+    setRateLive(true);
+  };
+  const setManualRate = (rate: string) => {
+    setRateLive(false);
+    set("rate", rate);
+  };
 
-  const setScript = (script: string) =>
-    setForm((f) => {
+  const setScript = (script: string) => {
+    setRateLive(true);
+    return setForm((f) => {
       const next = { ...f, script };
       const i = findInstrument(INSTRUMENTS, f.segment, script);
       const lot = num(f.lot);
       if (i && lot > 0) next.qty = String(lot * i.lotSize);
       return next;
     });
+  };
 
   const setLot = (lot: string) =>
     setForm((f) => {
@@ -112,7 +126,7 @@ export function TradeEntry({
   // ---- Draft trade & live net rate -------------------------------------------------
   const draft = useMemo((): Trade | null => {
     const qty = num(form.qty);
-    const rate = num(form.rate);
+    const rate = num(rateStr);
     if (!inst || !account || !(qty > 0) || !(rate > 0)) return null;
     const original = editingId != null ? data.trades.find((t) => t.id === editingId) : undefined;
     return {
@@ -135,7 +149,7 @@ export function TradeEntry({
       ip: "",
       addTime: original?.addTime ?? `${form.date} ${toTimeStr(new Date())}`,
     };
-  }, [form, inst, account, isOpt, editingId, data.trades]);
+  }, [form, rateStr, inst, account, isOpt, editingId, data.trades]);
 
   const draftCalc = useMemo(() => {
     if (!draft) return null;
@@ -148,6 +162,7 @@ export function TradeEntry({
 
   // ---- Actions ---------------------------------------------------------------------
   const resetForm = (keepHeader = true) => {
+    setRateLive(true);
     setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType, checkHL: f.checkHL } : initialForm()));
     setEditingId(null);
     setTimeout(() => scriptRef.current?.focus(), 0);
@@ -172,7 +187,7 @@ export function TradeEntry({
     if (!(qty > 0)) return fail("Enter quantity / lot", lotRef.current);
     if (DERIVATIVE_SEGMENTS.has(form.segment) && qty % inst.lotSize !== 0)
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
-    const rate = num(form.rate);
+    const rate = num(rateStr);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
     if (form.checkHL) {
       if (!tick) return fail("Check HL: no live high/low for this contract — untick Check HL to save", rateRef.current);
@@ -193,10 +208,12 @@ export function TradeEntry({
     });
     setEditingId(null);
     setForm((f) => ({ ...f, lot: "", qty: "", rate: "", fullPayment: false }));
+    setRateLive(true);
     setTimeout(() => lotRef.current?.focus(), 0);
   };
 
   const edit = (t: Trade) => {
+    setRateLive(false); // keep the trade's own rate
     setEditingId(t.id);
     setForm((f) => ({
       ...f, date: t.date, valan: t.valan, segment: t.segment, side: t.side, tradeType: t.tradeType,
@@ -220,10 +237,10 @@ export function TradeEntry({
     const target = e.target as HTMLElement;
     if (e.key === "F1" || e.key === "F2") {
       e.preventDefault();
-      set("side", e.key === "F1" ? "B" : "S");
+      setSide(e.key === "F1" ? "B" : "S");
     } else if ((e.key === "+" || e.key === "-") && !target.dataset.allowSign) {
       e.preventDefault();
-      set("side", e.key === "+" ? "B" : "S");
+      setSide(e.key === "+" ? "B" : "S");
     } else if (e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
       e.preventDefault();
       save();
@@ -316,10 +333,10 @@ export function TradeEntry({
             </Field>
             <div className="flex items-center gap-2" style={{ height: 26 }}>
               <label className={`tt-check tt-radio-buy${form.side === "B" ? " on" : ""}`}>
-                <input type="radio" name="side" checked={form.side === "B"} onChange={() => set("side", "B")} /> Buy
+                <input type="radio" name="side" checked={form.side === "B"} onChange={() => setSide("B")} /> Buy
               </label>
               <label className={`tt-check tt-radio-sell${form.side === "S" ? " on" : ""}`}>
-                <input type="radio" name="side" checked={form.side === "S"} onChange={() => set("side", "S")} /> Sell
+                <input type="radio" name="side" checked={form.side === "S"} onChange={() => setSide("S")} /> Sell
               </label>
             </div>
             <div className="flex items-center gap-2" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
@@ -343,15 +360,15 @@ export function TradeEntry({
               title={feed.status === "not-configured" ? "Live feed not configured (Angel One)" : feed.status === "error" ? `Live feed error: ${feed.message}` : liveKey ?? "Select a script"}>
               <span><i className={`tt-feed-dot ${liveKey && tick ? "on" : feed.status === "error" ? "err" : ""}`} />{inst ? inst.symbol : "—"}</span>
               <span>L: <b className="l">{tick ? fmt2(tick.low) : "—"}</b></span>
-              <span className="m-click" onClick={() => tick && set("rate", String(tick.ltp))} title="Click to use as Rate">
+              <span className="m-click" onClick={() => tick && setManualRate(String(tick.ltp))} title="Click to use as Rate">
                 M: <b className="m">{tick ? fmt2(tick.ltp) : "—"}</b>
               </span>
               <span>H: <b className="h">{tick ? fmt2(tick.high) : "—"}</b></span>
-              <span className="m-click" onClick={() => tick?.bid && set("rate", String(tick.bid))}
+              <span className="m-click" onClick={() => tick?.bid && setManualRate(String(tick.bid))}
                 title={tick?.bid ? `Best bid: ${tick.bidQty} qty — click to use as Rate` : "No bid"}>
                 B: <b className="bid">{tick?.bid ? fmt2(tick.bid) : "—"}</b>
               </span>
-              <span className="m-click" style={{ borderRight: 0 }} onClick={() => tick?.ask && set("rate", String(tick.ask))}
+              <span className="m-click" style={{ borderRight: 0 }} onClick={() => tick?.ask && setManualRate(String(tick.ask))}
                 title={tick?.ask ? `Best ask: ${tick.askQty} qty — click to use as Rate` : "No offer"}>
                 A: <b className="ask">{tick?.ask ? fmt2(tick.ask) : "—"}</b>
               </span>
@@ -386,9 +403,27 @@ export function TradeEntry({
               <input ref={qtyRef} className="tt-input num" inputMode="numeric" value={form.qty}
                 onChange={(e) => setQty(e.target.value.replace(/\D/g, ""))} onBlur={snapQtyOnBlur} />
             </Field>
-            <Field label="Rate" required width={88}>
-              <input ref={rateRef} className="tt-input num" inputMode="decimal" value={form.rate}
-                onChange={(e) => set("rate", e.target.value.replace(/[^\d.]/g, ""))} />
+            <Field
+              label={
+                <>
+                  Rate<span className="tt-req">*</span>{" "}
+                  <span
+                    className={`tt-rate-mode ${rateLive ? "live" : ""}`}
+                    title={rateLive ? `Following live ${form.side === "B" ? "Ask" : "Bid"} — type to enter your own rate` : "Click to follow the live price again"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (!rateLive) setRateLive(true);
+                    }}
+                  >
+                    {rateLive ? (form.side === "B" ? "● ASK" : "● BID") : "MANUAL ↺"}
+                  </span>
+                </>
+              }
+              width={110}
+            >
+              <input ref={rateRef} className={`tt-input num${rateLive && livePrice ? (form.side === "B" ? " live-buy" : " live-sell") : ""}`}
+                inputMode="decimal" value={rateStr}
+                onChange={(e) => setManualRate(e.target.value.replace(/[^\d.]/g, ""))} />
             </Field>
             <Field label="Client Code" required>
               <Suggest inputRef={clientRef} value={form.clientCode} onChange={(v) => set("clientCode", v)} options={clientOptions}
@@ -411,7 +446,7 @@ export function TradeEntry({
         </div>
 
         <div className="tt-status">
-          {draftCalc ? <BrokerageInfo calc={draftCalc} qty={num(form.qty)} rate={num(form.rate)} side={form.side} tradeType={form.tradeType} />
+          {draftCalc ? <BrokerageInfo calc={draftCalc} qty={num(form.qty)} rate={num(rateStr)} side={form.side} tradeType={form.tradeType} />
             : <span className="tt-muted">Net Rate = Rate ± brokerage per unit from the client&apos;s slab (script-wise, else segment-wise)</span>}
           {message && <span className={message.ok ? "ok" : "bad"} style={{ marginLeft: "auto" }}>{message.text}</span>}
         </div>

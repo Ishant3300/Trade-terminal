@@ -3,7 +3,7 @@
 import { useState, type ReactNode, type Ref } from "react";
 import { fmt2 } from "@/lib/terminal/engine";
 
-export function Field({ label, required, children, width }: { label: string; required?: boolean; children: ReactNode; width?: number }) {
+export function Field({ label, required, children, width }: { label: ReactNode; required?: boolean; children: ReactNode; width?: number }) {
   return (
     <label className="tt-field" style={width ? { width } : undefined}>
       <span className="tt-label">

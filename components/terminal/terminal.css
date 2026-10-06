@@ -190,6 +190,29 @@ textarea.tt-input {
 .tt-input.num {
   text-align: right;
 }
+.tt-input.live-buy {
+  color: #0d47a1;
+  font-weight: 700;
+}
+.tt-input.live-sell {
+  color: #b71c1c;
+  font-weight: 700;
+}
+.tt-rate-mode {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border: 1px solid #9aa3b0;
+  color: #5b6472;
+  cursor: pointer;
+  vertical-align: 1px;
+}
+.tt-rate-mode.live {
+  color: #fff;
+  background: #1a7f37;
+  border-color: #1a7f37;
+  cursor: default;
+}
 .tt-input.err {
   border-color: #dc3545;
   background: #fff4f4;
