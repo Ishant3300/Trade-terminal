@@ -5,6 +5,7 @@ import { fmt2, fmtDate, toDateStr, type TradeCalc } from "@/lib/terminal/engine"
 import { computeClientLedger, type StatementRow } from "@/lib/terminal/ledger";
 import type { LedgerEntry, LedgerKind, TerminalData } from "@/lib/terminal/types";
 import type { TerminalActions } from "./store";
+import { downloadLedgerPdf } from "./ledger-pdf";
 import { downloadCsv, Field, Suggest } from "./ui";
 
 const KIND_LABEL: Record<LedgerKind, string> = {
@@ -93,6 +94,24 @@ export function LedgerView({ data, calcs, actions }: { data: TerminalData; calcs
   }, [data.trades, data.entries, today]);
   const settledThisMonth = ledger?.settlements.find((s) => monthOf(s.periodTo) === month);
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const downloadPdf = async () => {
+    if (!account || !ledger) return;
+    setPdfBusy(true);
+    try {
+      await downloadLedgerPdf({
+        account, monthLabel: monthLabel(month), periodFrom: `${month}-01`, periodTo: asOf, rows,
+        summary: {
+          money: ledger.money, margin: ledger.margin, funded: ledger.funded, monthInterest,
+          monthInterestNote: settledThisMonth ? `billed ${fmtDate(settledThisMonth.periodTo)}` : "accrued, billed at month-end",
+          postedInterest: ledger.postedInterest, pendingPnl: ledger.pendingPnl,
+        },
+      });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const exportStatement = () =>
     downloadCsv(
       `ledger_${client}_${month}.csv`,
@@ -154,7 +173,10 @@ export function LedgerView({ data, calcs, actions }: { data: TerminalData; calcs
           <span className="tt-muted" style={{ fontWeight: 400 }}>
             NSE equity · Funded = Margin used − Client money · Interest {account?.interestPct ?? 0}% p.a. on funded · up to {fmtDate(asOf)}
           </span>
-          <button type="button" className="tt-btn tt-btn-save" style={{ marginLeft: "auto" }} onClick={exportStatement} disabled={!rows.length}>Export to Excel</button>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+            <button type="button" className="tt-btn tt-btn-blue" onClick={downloadPdf} disabled={!rows.length || pdfBusy}>{pdfBusy ? "Preparing…" : "Download PDF"}</button>
+            <button type="button" className="tt-btn tt-btn-save" onClick={exportStatement} disabled={!rows.length}>Export to Excel</button>
+          </span>
         </div>
 
         {ledger && (
