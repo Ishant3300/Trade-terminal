@@ -96,14 +96,14 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
       prices: Object.fromEntries(scripts.map((s) => [s, { price: Number(prices[s].price), source: prices[s].source || "Manual" }])),
     });
     setBusy(false);
-    setMessage(res.ok ? { ok: true, text: `Settlement ${fmtDate(settleDate)} saved — postings below` } : { ok: false, text: `Not saved: ${res.error}` });
+    setMessage(res.ok ? { ok: true, text: `Settlement for ${fmtDate(end)} saved — postings below` } : { ok: false, text: `Not saved: ${res.error}` });
   };
 
   const remove = async (id: number, date: string) => {
     if (!confirm(`Delete (undo) the settlement of ${fmtDate(date)}? Its P&L, MTM and interest postings will be removed and recalculated.`)) return;
     const res = await actions.deleteSettlement(id);
     setMessage(res.ok ? { ok: true, text: `Settlement ${fmtDate(date)} deleted` } : { ok: false, text: `Not deleted: ${res.error}` });
-    if (res.ok && date === settleDate) setLoadedFor(null);
+    if (res.ok && date === end) setLoadedFor(null);
   };
 
   // What the saved settlement posts to each client.
@@ -111,12 +111,12 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
     if (!existing) return [];
     return data.accounts
       .map((a) => {
-        const L = computeClientLedger(a, data.trades, calcs, data.entries, data.settlements, settleDate);
+        const L = computeClientLedger(a, data.trades, calcs, data.entries, data.settlements, end);
         const s = L.settlements.find((x) => x.settlement.id === existing.id);
         return s ? { account: a, s, money: L.money, funded: L.funded } : null;
       })
       .filter((x): x is NonNullable<typeof x> => !!x && (!!x.s.realized || !!x.s.mtm || !!x.s.interest));
-  }, [existing, data.accounts, data.trades, data.entries, data.settlements, calcs, settleDate]);
+  }, [existing, data.accounts, data.trades, data.entries, data.settlements, calcs, end]);
 
   return (
     <div className="tt-page">
@@ -128,7 +128,7 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Monthly Settlement <span className="tt-muted">— NSE equity open positions valued at bhav close; posts month&apos;s P&amp;L, MTM and interest on the 1st</span>
+          Monthly Settlement <span className="tt-muted">— NSE equity open positions valued at bhav close; bills the month&apos;s P&amp;L, MTM and interest on its last day</span>
         </div>
         <div className="tt-card-b flex flex-wrap items-end gap-x-3 gap-y-1">
           <Field label="Month" width={170}>
@@ -136,8 +136,8 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
               {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
             </select>
           </Field>
-          <Field label="Settlement date" width={128}>
-            <input className="tt-input" readOnly tabIndex={-1} value={settleDate ? fmtDate(settleDate) : ""} />
+          <Field label="Billing date" width={128}>
+            <input className="tt-input" readOnly tabIndex={-1} value={end ? fmtDate(end) : ""} />
           </Field>
           <Field label="Bhav (price) date" width={140}>
             <input type="date" className="tt-input" value={priceDate} max={end} onChange={(e) => setPriceDate(e.target.value)} />
@@ -149,7 +149,7 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
             {existing ? "Update settlement" : "Save settlement"}
           </button>
           {existing && (
-            <button type="button" className="tt-btn tt-btn-red" onClick={() => remove(existing.id, existing.settleDate)} disabled={busy}>
+            <button type="button" className="tt-btn tt-btn-red" onClick={() => remove(existing.id, end)} disabled={busy}>
               Delete settlement
             </button>
           )}
@@ -184,7 +184,7 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
 
       {existing && (
         <div className="tt-card">
-          <div className="tt-card-h">Postings on {fmtDate(existing.settleDate)} <span className="tt-muted">— per client, from the saved prices</span></div>
+          <div className="tt-card-h">Postings on {fmtDate(end)} <span className="tt-muted">— per client, from the saved prices</span></div>
           <div className="tt-grid-wrap">
             <table className="tt-grid">
               <thead>
@@ -214,14 +214,14 @@ export function SettlementView({ data, calcs, actions }: { data: TerminalData; c
         <div className="tt-card-h">Settlements <span className="tt-badge" style={{ marginLeft: "auto" }}>Count: {data.settlements.length}</span></div>
         <div className="tt-grid-wrap" style={{ maxHeight: "25vh" }}>
           <table className="tt-grid">
-            <thead><tr><th>Settlement date</th><th>Bhav date</th><th className="num">Scripts priced</th><th className="ctr">Delete</th></tr></thead>
+            <thead><tr><th>Billing date</th><th>Bhav date</th><th className="num">Scripts priced</th><th className="ctr">Delete</th></tr></thead>
             <tbody>
               {[...data.settlements].sort((a, b) => b.settleDate.localeCompare(a.settleDate)).map((s) => (
                 <tr key={s.id}>
-                  <td>{fmtDate(s.settleDate)}</td>
+                  <td>{fmtDate(addDays(s.settleDate, -1))}</td>
                   <td>{fmtDate(s.priceDate)}</td>
                   <td className="num">{Object.keys(s.prices).length}</td>
-                  <td className="ctr"><button type="button" className="tt-btn tt-btn-red tt-btn-xs" onClick={() => remove(s.id, s.settleDate)}>Delete</button></td>
+                  <td className="ctr"><button type="button" className="tt-btn tt-btn-red tt-btn-xs" onClick={() => remove(s.id, addDays(s.settleDate, -1))}>Delete</button></td>
                 </tr>
               ))}
               {!data.settlements.length && <tr><td colSpan={4} className="empty">No settlements yet.</td></tr>}

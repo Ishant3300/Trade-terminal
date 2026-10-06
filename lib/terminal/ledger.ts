@@ -156,7 +156,9 @@ export function computeClientLedger(
   const mine = trades.filter((t) => t.clientCode === account.code && t.date <= asOf);
   const { portions, intraday, warnings } = buildEquityLots(mine, calcs);
   const myEntries = entries.filter((e) => e.clientCode === account.code && e.date <= asOf);
-  const settlements = allSettlements.filter((s) => s.settleDate <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  // A settlement is billed at the end of the month's last day (the day before its 1st-of-month key).
+  const postDate = (s: Settlement) => addDays(s.settleDate, -1);
+  const settlements = allSettlements.filter((s) => postDate(s) <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
   const rate = account.interestPct / 100 / 365;
 
   // --- Settlement P&L per portion: MTM at each bhav, realized at the settlement after the sale.
@@ -223,7 +225,7 @@ export function computeClientLedger(
   changes.sort((a, b) => a.date.localeCompare(b.date) || order.indexOf(a.kind) - order.indexOf(b.kind));
 
   const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;
-  const firstDate = [changes[0]?.date, settlements[0]?.settleDate].filter(Boolean).sort()[0];
+  const firstDate = [changes[0]?.date, settlements[0] && postDate(settlements[0])].filter(Boolean).sort()[0];
   const rows: StatementRow[] = [];
   const summaries: SettlementSummary[] = [];
   let money = opening;
@@ -255,24 +257,6 @@ export function computeClientLedger(
     for (let d = firstDate; d <= asOf; d = addDays(d, 1)) {
       // Month boundary: a b/f row so each month's interest stays within that month.
       if (d.endsWith("-01") && d !== firstDate) push(d, "BF", "Balance brought forward", 0, 0);
-      // Settlement on its date: post P&L, MTM and the closed period's interest first.
-      while (si < settlements.length && settlements[si].settleDate === d) {
-        const s = settlements[si];
-        const realized = realizedAt.get(si) ?? 0;
-        const mtm = mtmAt.get(si) ?? 0;
-        const interest = round2(periodInterest);
-        if (realized) push(d, "PNL", `Settlement ${dmy(s.settleDate)}: P&L on trades closed till ${dmy(s.priceDate)}`, round2(realized), 0);
-        if (mtm) push(d, "MTM", `Settlement ${dmy(s.settleDate)}: MTM of open positions @ bhav ${dmy(s.priceDate)}`, round2(mtm), 0);
-        if (interest) push(d, "INTEREST", `Interest ${dmy(periodFrom)} to ${dmy(addDays(d, -1))} @ ${account.interestPct}%`, -interest, 0);
-        summaries.push({
-          settlement: s, periodFrom, periodTo: addDays(d, -1), realized: round2(realized), mtm: round2(mtm), interest,
-          missingPrices: [...(missing.get(si) ?? [])].sort(),
-        });
-        postedInterest += interest;
-        periodInterest = 0;
-        periodFrom = d;
-        si++;
-      }
       while (ci < changes.length && changes[ci].date === d) {
         const c = changes[ci++];
         push(d, c.kind, c.particulars, c.money, c.margin);
@@ -282,6 +266,26 @@ export function computeClientLedger(
       const last = rows[rows.length - 1];
       last.days += 1;
       last.interest += dayInterest;
+
+      // Month-end billing, after the day's interest: P&L, MTM @ bhav and the period's interest.
+      // The new balance applies from the next day (the 1st).
+      while (si < settlements.length && postDate(settlements[si]) === d) {
+        const st = settlements[si];
+        const realized = realizedAt.get(si) ?? 0;
+        const mtm = mtmAt.get(si) ?? 0;
+        const interest = round2(periodInterest);
+        if (realized) push(d, "PNL", `Settlement ${dmy(d)}: P&L on trades closed till ${dmy(st.priceDate)}`, round2(realized), 0);
+        if (mtm) push(d, "MTM", `Settlement ${dmy(d)}: MTM of open positions @ bhav ${dmy(st.priceDate)}`, round2(mtm), 0);
+        if (interest) push(d, "INTEREST", `Interest ${dmy(periodFrom)} to ${dmy(d)} @ ${account.interestPct}%`, -interest, 0);
+        summaries.push({
+          settlement: st, periodFrom, periodTo: d, realized: round2(realized), mtm: round2(mtm), interest,
+          missingPrices: [...(missing.get(si) ?? [])].sort(),
+        });
+        postedInterest += interest;
+        periodInterest = 0;
+        periodFrom = addDays(d, 1);
+        si++;
+      }
     }
   }
 

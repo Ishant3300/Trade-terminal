@@ -162,12 +162,12 @@ export function LedgerView({ data, calcs, actions }: { data: TerminalData; calcs
             <span>Client money <b className={ledger.money < 0 ? "neg" : "pos"}>{crDr(ledger.money)}</b></span>
             <span>Margin used <b>{fmt2(ledger.margin)}</b></span>
             <span>Funded <b className="neg">{fmt2(ledger.funded)}</b></span>
-            <span>Interest this month <b>{fmt2(monthInterest)}</b>{settledThisMonth ? <span className="tt-muted"> (posted {fmtDate(settledThisMonth.settlement.settleDate)})</span> : <span className="tt-muted"> (accrued, posts at settlement)</span>}</span>
+            <span>Interest this month <b>{fmt2(monthInterest)}</b>{settledThisMonth ? <span className="tt-muted"> (billed {fmtDate(settledThisMonth.periodTo)})</span> : <span className="tt-muted"> (accrued, billed at month-end settlement)</span>}</span>
             <span>Interest posted to date <b>{fmt2(ledger.postedInterest)}</b></span>
             <span>Trade P&amp;L awaiting settlement <b className={ledger.pendingPnl < 0 ? "neg" : "pos"}>{fmt2(ledger.pendingPnl)}</b></span>
             {ledger.warnings.map((w) => <span key={w} className="bad">{w}</span>)}
             {ledger.settlements.filter((s) => s.missingPrices.length).map((s) => (
-              <span key={s.settlement.id} className="bad">Settlement {fmtDate(s.settlement.settleDate)} has no price for: {s.missingPrices.join(", ")}</span>
+              <span key={s.settlement.id} className="bad">Settlement {fmtDate(s.periodTo)} has no price for: {s.missingPrices.join(", ")}</span>
             ))}
           </div>
         )}
