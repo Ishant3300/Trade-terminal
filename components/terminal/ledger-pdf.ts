@@ -1,4 +1,5 @@
 import type { StatementRow } from "@/lib/terminal/ledger";
+import { ACCENT, amt, crDr, dmy, drawBand, drawFooters, generatedAt, GREEN, INK, LINE, loadPdf, MARGIN, MUTED, NAVY, RED, type RGB } from "./pdf-kit";
 import type { Account } from "@/lib/terminal/types";
 
 // Premium A4-landscape PDF of the Ledger Statement (same content as the screen).
@@ -18,22 +19,7 @@ export interface LedgerPdfInput {
     postedInterest: number;
     pendingPnl: number;
   };
-  firmName?: string;
 }
-
-type RGB = [number, number, number];
-const INK: RGB = [28, 36, 48];
-const NAVY: RGB = [31, 36, 45];
-const ACCENT: RGB = [30, 96, 210];
-const MUTED: RGB = [107, 118, 134];
-const RED: RGB = [183, 28, 28];
-const GREEN: RGB = [26, 127, 55];
-const LINE: RGB = [216, 220, 227];
-
-const nf = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const amt = (n: number) => nf.format(Math.abs(n) < 0.005 ? 0 : n);
-const crDr = (n: number) => (Math.abs(n) < 0.005 ? "0.00" : `${nf.format(Math.abs(n))} ${n >= 0 ? "Cr" : "Dr"}`);
-const dmy = (d: string) => d.split("-").reverse().join("-");
 
 export async function downloadLedgerPdf(input: LedgerPdfInput) {
   const doc = await buildLedgerPdf(input);
@@ -42,35 +28,11 @@ export async function downloadLedgerPdf(input: LedgerPdfInput) {
 
 /** Builds the statement PDF (jsPDF document). */
 export async function buildLedgerPdf(input: LedgerPdfInput) {
-  const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+  const { doc, autoTable } = await loadPdf();
   const { account, rows, summary } = input;
-  const firm = (input.firmName ?? "Trade Terminal").toUpperCase();
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const M = 12; // margin
-
-  // ---- Header band ------------------------------------------------------------------
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, W, 24, "F");
-  doc.setFillColor(...ACCENT);
-  doc.rect(0, 24, W, 1.2, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(17);
-  doc.text(firm, M, 12);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(170, 178, 190);
-  doc.text("JOBBING BACK OFFICE", M, 17.5);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.text("LEDGER STATEMENT", W - M, 12, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(200, 206, 214);
-  doc.text(`${input.monthLabel}  ·  ${dmy(input.periodFrom)} to ${dmy(input.periodTo)}`, W - M, 17.5, { align: "right" });
+  const M = MARGIN;
+  drawBand(doc, "LEDGER STATEMENT", `${input.monthLabel}  ·  ${dmy(input.periodFrom)} to ${dmy(input.periodTo)}`);
 
   // ---- Client block -------------------------------------------------------------------
   let y = 34;
@@ -90,11 +52,7 @@ export async function buildLedgerPdf(input: LedgerPdfInput) {
   doc.setTextColor(...MUTED);
   doc.setFontSize(8.5);
   doc.text(`NSE Equity  ·  Interest ${account.interestPct.toFixed(2)}% p.a. on funded amount  ·  Funded = Margin used - Client money`, M, y);
-  const now = new Date();
-  doc.text(
-    `Generated ${now.toLocaleDateString("en-GB").replace(/\//g, "-")} ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}  ·  Amounts in INR`,
-    W - M, y, { align: "right" }
-  );
+  doc.text(`Generated ${generatedAt()}  ·  Amounts in INR`, W - M, y, { align: "right" });
 
   // ---- Summary tiles ------------------------------------------------------------------
   y += 6;
@@ -194,20 +152,6 @@ export async function buildLedgerPdf(input: LedgerPdfInput) {
     },
   });
 
-  // ---- Footer on every page -----------------------------------------------------------
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setDrawColor(...LINE);
-    doc.setLineWidth(0.3);
-    doc.line(M, H - 10, W - M, H - 10);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(...MUTED);
-    doc.text(`${firm}  ·  Ledger Statement  ·  ${account.code} ${account.name}  ·  ${input.monthLabel}`, M, H - 6);
-    doc.text("This is a computer-generated statement.", W / 2, H - 6, { align: "center" });
-    doc.text(`Page ${p} of ${pages}`, W - M, H - 6, { align: "right" });
-  }
-
+  drawFooters(doc, `Ledger Statement  ·  ${account.code} ${account.name}  ·  ${input.monthLabel}`);
   return doc;
 }

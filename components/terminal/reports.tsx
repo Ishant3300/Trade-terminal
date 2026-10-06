@@ -7,6 +7,7 @@ import {
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
 import { computeClientLedger } from "@/lib/terminal/ledger";
 import { useLiveQuotes } from "./quotes";
+import { downloadReportPdf } from "./report-pdf";
 import { downloadCsv, Field, PnL } from "./ui";
 
 interface Filters {
@@ -87,6 +88,20 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
     { opening: 0, dep: 0, gross: 0, brk: 0, int: 0, bal: 0, unr: 0, eq: 0 }
   );
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      await downloadReportPdf({
+        asOn: f.to,
+        filters: { client: f.client, segment: f.segment, script: f.script.trim().toUpperCase() },
+        nameOf, positions, positionTotals: pt, ledger, ledgerTotals: lt,
+      });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const exportPositions = () =>
     downloadCsv(
       `net_position_as_on_${f.to}.csv`,
@@ -118,6 +133,9 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
             <input type="date" className="tt-input" value={draft.to} onChange={(e) => set("to", e.target.value)} />
           </Field>
           <button type="submit" className="tt-btn tt-btn-blue">View</button>
+          <button type="button" className="tt-btn tt-btn-blue" onClick={downloadPdf} disabled={pdfBusy || (!positions.length && !ledger.length)}>
+            {pdfBusy ? "Preparing…" : "Download PDF"}
+          </button>
           <button type="button" className="tt-btn tt-btn-save" onClick={exportPositions} disabled={!positions.length}>Export to Excel</button>
           <span className="tt-muted" style={{ marginLeft: "auto" }}>
             {feed.status === "live"
