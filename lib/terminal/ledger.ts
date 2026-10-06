@@ -37,7 +37,12 @@ interface IntradayPnl {
   pnl: number;
 }
 
-/** Splits a client's NSE equity NRM trades into delivery lots (FIFO) and intraday P&L. */
+/**
+ * Splits a client's NSE equity trades into delivery lots (FIFO) and intraday
+ * P&L. NRM trades are normal executions; BF (brought forward) buys are
+ * positions carried in from an earlier month — held from the start of their
+ * day, never matched as intraday, no brokerage. CF entries are ignored.
+ */
 export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) {
   const portions: Portion[] = [];
   const intraday: IntradayPnl[] = [];
@@ -47,8 +52,8 @@ export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) 
   const byScript = new Map<string, Trade[]>();
   for (const t of trades) {
     if (t.segment !== "NSEEQ") continue;
-    if (t.tradeType !== "NRM") {
-      warnings.push(`${t.script} ${t.date}: ${t.tradeType} entry ignored in ledger`);
+    if (t.tradeType === "CF" || (t.tradeType === "BF" && t.side !== "B")) {
+      warnings.push(`${t.script} ${t.date}: ${t.tradeType} ${t.side === "B" ? "buy" : "sell"} entry ignored in ledger`);
       continue;
     }
     const list = byScript.get(t.script);
@@ -62,7 +67,9 @@ export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) 
     const dates = [...new Set(sorted.map((t) => t.date))];
     for (const date of dates) {
       const day = sorted.filter((t) => t.date === date);
-      const buys = day.filter((t) => t.side === "B").map((t) => ({ t, qty: t.qty }));
+      // Brought-forward positions are already held when the day starts.
+      for (const t of day) if (t.tradeType === "BF") open.push({ t, qty: t.qty });
+      const buys = day.filter((t) => t.side === "B" && t.tradeType !== "BF").map((t) => ({ t, qty: t.qty }));
       for (const sell of day.filter((t) => t.side === "S")) {
         let left = sell.qty;
         // 1. Same-day buys first: intraday.

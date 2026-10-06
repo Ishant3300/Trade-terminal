@@ -80,8 +80,10 @@ for (const r of rows) {
     key = `NCDEX|${r.name} ${r.expiry}`;
     if (NCDEX_MULTIPLIER[r.name]) (ncdex[r.name] ??= new Set()).add(isoOf(r.expiry));
     else skipped.NCDEX.add(r.name);
-  } else if (r.exch_seg === "NSE" && r.symbol.endsWith("-EQ")) {
+  } else if (r.exch_seg === "NSE" && /-(EQ|BE|SM|ST)$/.test(r.symbol)) {
+    // EQ plus trade-for-trade (BE) and SME (SM/ST) series; EQ wins if a name has several.
     key = `NSEEQ|${r.name}`;
+    if (tokens[key] && !r.symbol.endsWith("-EQ")) continue;
     equities.add(r.name);
   } else {
     continue;
