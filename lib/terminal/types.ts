@@ -76,8 +76,34 @@ export interface Slab {
   minPctOnDel: number;
 }
 
+export type LedgerKind = "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR";
+
+/** Manual ledger entry: deposits / payouts change client money from their date. */
+export interface LedgerEntry {
+  id: number;
+  clientCode: string;
+  date: string; // YYYY-MM-DD
+  kind: LedgerKind;
+  amount: number; // always positive; kind gives the direction
+  narration: string;
+  user: string;
+}
+
+/** Monthly settlement: open NSE equity positions valued at bhav close of priceDate. */
+export interface Settlement {
+  id: number;
+  settleDate: string; // 1st of the month, e.g. 2026-10-01
+  priceDate: string; // bhav date, e.g. 2026-09-30
+  prices: Record<string, number>; // script → close price
+  sources: Record<string, string>;
+}
+
 export interface TerminalData {
   accounts: Account[];
   slabs: Slab[];
   trades: Trade[];
+  entries: LedgerEntry[];
+  settlements: Settlement[];
+  /** Ledger tables missing: run supabase/schema.sql. */
+  ledgerSetupNeeded?: boolean;
 }

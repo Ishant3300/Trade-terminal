@@ -1,5 +1,5 @@
 import { toDateStr, toTimeStr } from "./engine";
-import type { Account, Slab, Trade } from "./types";
+import type { Account, LedgerEntry, Settlement, Slab, Trade } from "./types";
 
 // Row shapes of the Supabase tables (see supabase/schema.sql) and mappers to
 // the app's camelCase types.
@@ -158,4 +158,49 @@ export const tradeToRow = (t: TradeInput) => ({
   rate: t.rate,
   client_code: t.clientCode,
   full_payment: !!t.fullPayment,
+});
+
+export interface LedgerEntryRow {
+  id: number;
+  client_code: string;
+  entry_date: string;
+  kind: LedgerEntry["kind"];
+  amount: number;
+  narration: string;
+  user_name: string;
+}
+
+export const ledgerEntryFromRow = (r: LedgerEntryRow): LedgerEntry => ({
+  id: r.id,
+  clientCode: r.client_code,
+  date: r.entry_date,
+  kind: r.kind,
+  amount: Number(r.amount),
+  narration: r.narration,
+  user: r.user_name,
+});
+
+export type LedgerEntryInput = Omit<LedgerEntry, "id" | "user"> & { id?: number };
+
+export const ledgerEntryToRow = (e: LedgerEntryInput) => ({
+  client_code: e.clientCode,
+  entry_date: e.date,
+  kind: e.kind,
+  amount: e.amount,
+  narration: e.narration,
+});
+
+export interface SettlementRow {
+  id: number;
+  settle_date: string;
+  price_date: string;
+  settlement_prices?: { script: string; price: number; source: string }[];
+}
+
+export const settlementFromRow = (r: SettlementRow): Settlement => ({
+  id: r.id,
+  settleDate: r.settle_date,
+  priceDate: r.price_date,
+  prices: Object.fromEntries((r.settlement_prices ?? []).map((p) => [p.script, Number(p.price)])),
+  sources: Object.fromEntries((r.settlement_prices ?? []).map((p) => [p.script, p.source])),
 });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as server from "@/app/actions";
 import type { Result } from "@/app/actions";
-import type { SlabInput, TradeInput } from "@/lib/terminal/db";
+import type { LedgerEntryInput, SlabInput, TradeInput } from "@/lib/terminal/db";
 import { computeTradeCalcs } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import type { Account, TerminalData } from "@/lib/terminal/types";
@@ -32,6 +32,10 @@ export interface TerminalActions {
   deleteSlab(id: number): Promise<Result<unknown>>;
   saveAccount(account: Account, originalCode?: string): Promise<Result<unknown>>;
   deleteAccount(code: string): Promise<Result<unknown>>;
+  saveLedgerEntry(entry: LedgerEntryInput): Promise<Result<unknown>>;
+  deleteLedgerEntry(id: number): Promise<Result<unknown>>;
+  saveSettlement(input: server.SettlementInput): Promise<Result<unknown>>;
+  deleteSettlement(id: number): Promise<Result<unknown>>;
 }
 
 /**
@@ -84,6 +88,10 @@ export function useTerminalStore() {
       deleteSlab: (id) => safe(server.deleteSlab(id)).then(after),
       saveAccount: (a, orig) => safe(server.saveAccount(a, orig)).then(after),
       deleteAccount: (code) => safe(server.deleteAccount(code)).then(after),
+      saveLedgerEntry: (e) => safe(server.saveLedgerEntry(e)).then(after),
+      deleteLedgerEntry: (id) => safe(server.deleteLedgerEntry(id)).then(after),
+      saveSettlement: (x) => safe(server.saveSettlement(x)).then(after),
+      deleteSettlement: (id) => safe(server.deleteSettlement(id)).then(after),
     };
   }, [reload]);
 

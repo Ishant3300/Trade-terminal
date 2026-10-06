@@ -4,13 +4,16 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getQuotes, streamSetup, type FeedStatus, type Quote, type StreamSetup } from "@/lib/angel";
 import { checkCredentials, createSessionToken, SESSION_COOKIE, SESSION_HOURS, verifySessionToken } from "@/lib/auth";
+import { settlementPrices, type SettlementPrices } from "@/lib/bhav";
 import { requestIp } from "@/lib/request-ip";
 import { db } from "@/lib/supabase/server";
 import {
   accountFromRow, accountToRow, slabFromRow, slabToRow, tradeFromRow, tradeToRow,
   type AccountRow, type SlabInput, type SlabRow, type TradeInput, type TradeRow,
+  ledgerEntryFromRow, ledgerEntryToRow, settlementFromRow,
+  type LedgerEntryInput, type LedgerEntryRow, type SettlementRow,
 } from "@/lib/terminal/db";
-import type { Account, Slab, TerminalData, Trade } from "@/lib/terminal/types";
+import type { Account, LedgerEntry, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
 
 export type Result<T = null> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -59,10 +62,10 @@ export async function logout() {
 
 const PAGE = 1000; // Supabase returns at most 1000 rows per request
 
-async function fetchAll<T>(table: string, order: string): Promise<T[]> {
+async function fetchAll<T>(table: string, order: string, columns = "*"): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db().from(table).select("*").order(order).range(from, from + PAGE - 1);
+    const { data, error } = await db().from(table).select(columns).order(order).range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
     rows.push(...(data as T[]));
     if (data.length < PAGE) return rows;
@@ -77,9 +80,28 @@ export async function loadAll(): Promise<Result<TerminalData>> {
       fetchAll<SlabRow>("brokerage_slabs", "id"),
       fetchAll<TradeRow>("trades", "id"),
     ]);
+    // Ledger tables come from a later schema.sql; work without them until it is run.
+    let entries: LedgerEntryRow[] = [];
+    let settlements: SettlementRow[] = [];
+    let ledgerSetupNeeded = false;
+    try {
+      [entries, settlements] = await Promise.all([
+        fetchAll<LedgerEntryRow>("ledger_entries", "id"),
+        fetchAll<SettlementRow>("settlements", "settle_date", "*, settlement_prices(*)"),
+      ]);
+    } catch {
+      ledgerSetupNeeded = true;
+    }
     return {
       ok: true,
-      data: { accounts: accounts.map(accountFromRow), slabs: slabs.map(slabFromRow), trades: trades.map(tradeFromRow) },
+      data: {
+        accounts: accounts.map(accountFromRow),
+        slabs: slabs.map(slabFromRow),
+        trades: trades.map(tradeFromRow),
+        entries: entries.map(ledgerEntryFromRow),
+        settlements: settlements.map(settlementFromRow),
+        ledgerSetupNeeded,
+      },
     };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -176,4 +198,77 @@ export async function liveStreamSetup(keys: string[], refresh = false): Promise<
   if (!(await sessionUser())) return { status: "error", message: NOT_LOGGED_IN.error, url: null, tokens: {} };
   if (!Array.isArray(keys)) return { status: "error", message: "Bad request", url: null, tokens: {} };
   return streamSetup(keys.filter((k) => typeof k === "string").slice(0, 900), refresh === true);
+}
+
+// ---------------------------------------------------------------------------
+// Ledger entries (deposit / withdrawal / journals)
+// ---------------------------------------------------------------------------
+
+const LEDGER_SETUP = "Ledger tables missing — run supabase/schema.sql in Supabase";
+const setupError = (e: { message: string }) => (/ledger_entries|settlement/.test(e.message) ? LEDGER_SETUP : friendly(e));
+
+export async function saveLedgerEntry(input: LedgerEntryInput): Promise<Result<LedgerEntry>> {
+  const user = await sessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  if (!(input.amount > 0)) return { ok: false, error: "Amount must be more than 0" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { ok: false, error: "Invalid date" };
+  const row = ledgerEntryToRow(input);
+  const query =
+    input.id != null
+      ? db().from("ledger_entries").update(row).eq("id", input.id)
+      : db().from("ledger_entries").insert({ ...row, user_name: user });
+  const { data, error } = await query.select().single<LedgerEntryRow>();
+  if (error || !data) return { ok: false, error: error ? setupError(error) : "Not saved" };
+  return { ok: true, data: ledgerEntryFromRow(data) };
+}
+
+export async function deleteLedgerEntry(id: number): Promise<Result> {
+  if (!(await sessionUser())) return NOT_LOGGED_IN;
+  const { error } = await db().from("ledger_entries").delete().eq("id", id);
+  return error ? { ok: false, error: setupError(error) } : { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// Monthly settlement
+// ---------------------------------------------------------------------------
+
+/** Bhav close (NSE, Angel fallback) on the last trading day on or before `monthEnd`. */
+export async function fetchSettlementPrices(monthEnd: string, scripts: string[]): Promise<Result<SettlementPrices>> {
+  if (!(await sessionUser())) return NOT_LOGGED_IN;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(monthEnd) || !Array.isArray(scripts)) return { ok: false, error: "Bad request" };
+  return { ok: true, data: await settlementPrices(monthEnd, scripts.filter((x) => typeof x === "string").slice(0, 2000)) };
+}
+
+export interface SettlementInput {
+  settleDate: string;
+  priceDate: string;
+  prices: Record<string, { price: number; source: string }>;
+}
+
+/** Creates or replaces the settlement for `settleDate` with the given prices. */
+export async function saveSettlement(input: SettlementInput): Promise<Result<Settlement>> {
+  const user = await sessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const bad = Object.entries(input.prices).filter(([, p]) => !(p.price > 0)).map(([s]) => s);
+  if (bad.length) return { ok: false, error: `Enter a price for: ${bad.join(", ")}` };
+  const { data: settlement, error } = await db()
+    .from("settlements")
+    .upsert({ settle_date: input.settleDate, price_date: input.priceDate, user_name: user }, { onConflict: "settle_date" })
+    .select()
+    .single<SettlementRow>();
+  if (error || !settlement) return { ok: false, error: error ? setupError(error) : "Not saved" };
+  const del = await db().from("settlement_prices").delete().eq("settlement_id", settlement.id);
+  if (del.error) return { ok: false, error: setupError(del.error) };
+  const rows = Object.entries(input.prices).map(([script, p]) => ({ settlement_id: settlement.id, script, price: p.price, source: p.source }));
+  if (rows.length) {
+    const ins = await db().from("settlement_prices").insert(rows);
+    if (ins.error) return { ok: false, error: setupError(ins.error) };
+  }
+  return { ok: true, data: settlementFromRow({ ...settlement, settlement_prices: rows }) };
+}
+
+export async function deleteSettlement(id: number): Promise<Result> {
+  if (!(await sessionUser())) return NOT_LOGGED_IN;
+  const { error } = await db().from("settlements").delete().eq("id", id);
+  return error ? { ok: false, error: setupError(error) } : { ok: true, data: null };
 }

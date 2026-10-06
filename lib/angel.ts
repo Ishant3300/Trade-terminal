@@ -379,3 +379,36 @@ export async function streamSetup(keys: string[], refresh = false): Promise<Stre
     return { status: "error", message: describe(e), url: null, tokens };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Historical daily close (settlement fallback when NSE's bhav copy lacks a script)
+// ---------------------------------------------------------------------------
+
+/** Daily close for NSE equity `symbols` on `date` (YYYY-MM-DD); scripts without data are omitted. */
+export async function dailyCloses(symbols: string[], date: string): Promise<Record<string, number>> {
+  if (!feedConfigured()) throw new Error("Angel One not configured");
+  const out: Record<string, number> = {};
+  let jwt = (await getSession()).jwt;
+  for (const sym of symbols) {
+    const token = TOKEN_MAP[`NSEEQ|${sym}`]?.split(":")[1];
+    if (!token) continue;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const candles = await post<[string, number, number, number, number, number][]>(
+          "/rest/secure/angelbroking/historical/v1/getCandleData",
+          { exchange: "NSE", symboltoken: token, interval: "ONE_DAY", fromdate: `${date} 00:00`, todate: `${date} 23:59` },
+          jwt
+        );
+        const close = candles?.[0]?.[4];
+        if (close > 0) out[sym] = close;
+        break;
+      } catch (e) {
+        if (isAuthError(e)) jwt = (await getSession(true)).jwt;
+        else if (!/rate|access/i.test((e as Error).message)) break;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    await new Promise((r) => setTimeout(r, 400)); // historical API rate limit
+  }
+  return out;
+}

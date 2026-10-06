@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { AccountMaster } from "./account-master";
 import { BrokerageMaster } from "./brokerage-master";
+import { LedgerView } from "./ledger-view";
 import { Reports } from "./reports";
+import { SettlementView } from "./settlement-view";
 import { useTerminalStore } from "./store";
 import { TradeBook } from "./trade-book";
 import { TradeEntry } from "./trade-entry";
@@ -16,6 +18,8 @@ const TABS = [
   { id: "brokerage", label: "Brokerage Master" },
   { id: "account", label: "Account Master" },
   { id: "reports", label: "Reports" },
+  { id: "ledger", label: "Ledger" },
+  { id: "settlement", label: "Settlement" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -70,6 +74,8 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
           {tab === "brokerage" && <BrokerageMaster data={data} actions={actions} />}
           {tab === "account" && <AccountMaster data={data} actions={actions} />}
           {tab === "reports" && <Reports data={data} calcs={calcs} />}
+          {tab === "ledger" && <LedgerView data={data} calcs={calcs} actions={actions} />}
+          {tab === "settlement" && <SettlementView data={data} calcs={calcs} actions={actions} />}
         </>
       )}
     </div>

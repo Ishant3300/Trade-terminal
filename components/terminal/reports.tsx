@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
-  computeInterest, computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
+  computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
+import { computeClientLedger } from "@/lib/terminal/ledger";
 import { useLiveQuotes } from "./quotes";
 import { downloadCsv, Field, PnL } from "./ui";
 
@@ -56,19 +57,34 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
   const positions = useMemo(() => computePositions(positionTrades, calcs, livePrices), [positionTrades, calcs, livePrices]);
   // Interest accrues up to the To date (or today, if To is in the future).
   const interestAsOf = f.to && f.to < toDateStr(new Date()) ? f.to : toDateStr(new Date());
-  const interest = useMemo(
-    () => computeInterest(ledgerTrades, calcs, data.accounts, interestAsOf).filter((l) => !f.client || l.clientCode === f.client),
-    [ledgerTrades, calcs, data.accounts, interestAsOf, f.client]
-  );
+  // Interest (posted + accrued) from the client money ledger — same figures as the Ledger tab.
+  const interest = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of data.accounts) {
+      if (f.client && a.code !== f.client) continue;
+      const L = computeClientLedger(a, data.trades, calcs, data.entries, data.settlements, interestAsOf);
+      m.set(a.code, L.postedInterest + L.accruedInterest);
+    }
+    return m;
+  }, [data.accounts, data.trades, data.entries, data.settlements, calcs, interestAsOf, f.client]);
+  const deposits = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of data.entries) {
+      if (e.date > interestAsOf) continue;
+      const signed = e.kind === "DEPOSIT" || e.kind === "JOURNAL_CR" ? e.amount : -e.amount;
+      m.set(e.clientCode, (m.get(e.clientCode) ?? 0) + signed);
+    }
+    return m;
+  }, [data.entries, interestAsOf]);
   const ledger = useMemo(() => {
     const accounts = data.accounts.filter((a) => !f.client || a.code === f.client);
-    return computeLedger(accounts, computePositions(ledgerTrades, calcs, livePrices), interest);
-  }, [data.accounts, ledgerTrades, calcs, livePrices, interest, f.client]);
+    return computeLedger(accounts, computePositions(ledgerTrades, calcs, livePrices), interest, deposits);
+  }, [data.accounts, ledgerTrades, calcs, livePrices, interest, deposits, f.client]);
 
   const pt = positions.reduce((s, p) => ({ realized: s.realized + p.realized, mtm: s.mtm + p.mtm }), { realized: 0, mtm: 0 });
   const lt = ledger.reduce(
-    (s, r) => ({ opening: s.opening + r.opening, gross: s.gross + r.grossRealized, brk: s.brk + r.brokerage, int: s.int + r.interest, bal: s.bal + r.balance, unr: s.unr + r.unrealized, eq: s.eq + r.equity }),
-    { opening: 0, gross: 0, brk: 0, int: 0, bal: 0, unr: 0, eq: 0 }
+    (s, r) => ({ opening: s.opening + r.opening, dep: s.dep + r.deposits, gross: s.gross + r.grossRealized, brk: s.brk + r.brokerage, int: s.int + r.interest, bal: s.bal + r.balance, unr: s.unr + r.unrealized, eq: s.eq + r.equity }),
+    { opening: 0, dep: 0, gross: 0, brk: 0, int: 0, bal: 0, unr: 0, eq: 0 }
   );
 
   const exportPositions = () =>
@@ -160,13 +176,13 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Balance = Opening (+Cr / −Dr) + Realized P&amp;L − Brokerage − Interest</span>
+          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Balance = Opening (+Cr / −Dr) + Deposits (net) + Realized P&amp;L − Brokerage − Interest · interest per Ledger tab</span>
         </div>
         <div className="tt-grid-wrap">
           <table className="tt-grid">
             <thead>
               <tr>
-                <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Opening</th><th className="num">Realized P&amp;L</th>
+                <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Opening</th><th className="num">Deposits (net)</th><th className="num">Realized P&amp;L</th>
                 <th className="num">Brokerage</th><th className="num">Interest</th><th className="num">Current Balance</th><th className="num">Unrealized MTM</th>
                 <th className="num">Net Equity</th><th className="num">Int. %</th>
               </tr>
@@ -178,6 +194,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
                   <td>{r.account.name}</td>
                   <td>{r.account.type}</td>
                   <td className={`num ${r.opening < 0 ? "neg" : ""}`}>{drCr(r.opening)}</td>
+                  <td className="num">{fmt2(r.deposits)}</td>
                   <td className="num"><PnL value={r.grossRealized} /></td>
                   <td className="num">{fmt2(r.brokerage)}</td>
                   <td className="num">{fmt2(r.interest)}</td>
@@ -192,6 +209,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
               <tr>
                 <td colSpan={3}>Total</td>
                 <td className="num">{drCr(lt.opening)}</td>
+                <td className="num">{fmt2(lt.dep)}</td>
                 <td className="num"><PnL value={lt.gross} /></td>
                 <td className="num">{fmt2(lt.brk)}</td>
                 <td className="num">{fmt2(lt.int)}</td>
@@ -205,50 +223,6 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
         </div>
       </div>
 
-      <div className="tt-card">
-        <div className="tt-card-h">
-          Interest Details
-          <span className="tt-muted">— equity delivery buys · amount × Int. % ÷ 365 × days (both days counted) · up to {fmtDate(interestAsOf)} · same-day (intraday) and Full Payment buys excluded</span>
-          <span className="tt-badge" style={{ marginLeft: "auto" }}>Count: {interest.length}</span>
-        </div>
-        <div className="tt-grid-wrap" style={{ maxHeight: "46vh" }}>
-          <table className="tt-grid">
-            <thead>
-              <tr>
-                <th>Client</th><th>Script</th><th>Buy Date</th><th>Till</th><th className="num">Qty</th><th className="num">Net Buy Rate</th>
-                <th className="num">Amount</th><th className="num">Days</th><th className="num">Int. %</th><th className="num">Interest</th>
-              </tr>
-            </thead>
-            <tbody>
-              {interest.map((l, i) => (
-                <tr key={i} className={l.toDate ? "" : "buy"}>
-                  <td>{l.clientCode} - {nameOf.get(l.clientCode) ?? "?"}</td>
-                  <td>{l.script}</td>
-                  <td>{fmtDate(l.buyDate)}</td>
-                  <td>{l.toDate ? `${fmtDate(l.toDate)} (sold)` : `${fmtDate(interestAsOf)} (open)`}</td>
-                  <td className="num">{fmt0(l.qty)}</td>
-                  <td className="num">{fmt2(l.netRate)}</td>
-                  <td className="num">{fmt2(l.amount)}</td>
-                  <td className="num">{l.days}</td>
-                  <td className="num">{l.ratePct.toFixed(2)}</td>
-                  <td className="num" style={{ fontWeight: 600 }}>{fmt2(l.interest)}</td>
-                </tr>
-              ))}
-              {interest.length === 0 && <tr><td colSpan={10} className="empty">No interest — set Ledger Interest % on the account (Account Master) to charge interest on equity delivery buys.</td></tr>}
-            </tbody>
-            {interest.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td colSpan={6}>Total</td>
-                  <td className="num">{fmt2(interest.reduce((s, l) => s + l.amount, 0))}</td>
-                  <td colSpan={2}></td>
-                  <td className="num">{fmt2(interest.reduce((s, l) => s + l.interest, 0))}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
     </div>
   );
 }

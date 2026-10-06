@@ -75,6 +75,41 @@ create index if not exists trades_trade_date_idx on public.trades (trade_date);
 create index if not exists trades_client_code_idx on public.trades (client_code);
 
 -- ---------------------------------------------------------------------------
+-- Manual ledger entries (deposits, payouts, journals)
+-- ---------------------------------------------------------------------------
+create table if not exists public.ledger_entries (
+  id bigint generated always as identity primary key,
+  client_code text not null references public.accounts (code) on update cascade on delete cascade,
+  entry_date date not null,
+  kind text not null check (kind in ('DEPOSIT', 'WITHDRAWAL', 'JOURNAL_DR', 'JOURNAL_CR')),
+  amount numeric(16, 2) not null check (amount > 0),
+  narration text not null default '',
+  user_name text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ledger_entries_client_idx on public.ledger_entries (client_code, entry_date);
+
+-- ---------------------------------------------------------------------------
+-- Monthly settlements: open NSE equity positions valued at bhav close
+-- ---------------------------------------------------------------------------
+create table if not exists public.settlements (
+  id bigint generated always as identity primary key,
+  settle_date date not null unique,   -- e.g. 2026-10-01
+  price_date date not null,           -- bhav date used, e.g. 2026-09-30
+  user_name text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.settlement_prices (
+  settlement_id bigint not null references public.settlements (id) on delete cascade,
+  script text not null,
+  price numeric(14, 4) not null check (price > 0),
+  source text not null default '',
+  primary key (settlement_id, script)
+);
+
+-- ---------------------------------------------------------------------------
 -- Angel One SmartAPI session, shared by all server instances (one row)
 -- ---------------------------------------------------------------------------
 create table if not exists public.broker_session (
@@ -94,5 +129,9 @@ alter table public.accounts enable row level security;
 alter table public.brokerage_slabs enable row level security;
 alter table public.trades enable row level security;
 alter table public.broker_session enable row level security;
+alter table public.ledger_entries enable row level security;
+alter table public.settlements enable row level security;
+alter table public.settlement_prices enable row level security;
 
-revoke all on table public.accounts, public.brokerage_slabs, public.trades, public.broker_session from anon, authenticated;
+revoke all on table public.accounts, public.brokerage_slabs, public.trades, public.broker_session,
+  public.ledger_entries, public.settlements, public.settlement_prices from anon, authenticated;

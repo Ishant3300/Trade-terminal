@@ -359,7 +359,7 @@ export function computePositions(
 }
 
 // ---------------------------------------------------------------------------
-// Interest on funded delivery buys (equity)
+// Ledger (interest itself is computed in ./ledger.ts)
 // ---------------------------------------------------------------------------
 
 /** Calendar days from `from` to `to`, counting both days (24-Aug → 24-Aug = 1). */
@@ -369,94 +369,10 @@ export function daysInclusive(from: string, to: string): number {
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000) + 1;
 }
 
-export interface InterestLine {
-  clientCode: string;
-  script: string;
-  buyDate: string;
-  /** Sell date that closed this part, or null while still open. */
-  toDate: string | null;
-  qty: number;
-  netRate: number;
-  amount: number; // qty × net buy rate (brokerage included)
-  days: number;
-  ratePct: number; // annual %
-  interest: number;
-}
-
-/**
- * Interest = buy amount × annual % ÷ 365 × days held, per account's Ledger
- * Interest %. Equity (NSEEQ) only. For each client + script, sells first
- * close same-day buys (intraday — no interest), then the oldest open buys
- * (FIFO); each closed part is charged from its buy date to its sell date and
- * open parts up to `asOf`, both days counted. "Full payment" buys and CF/BF
- * entries carry no interest.
- */
-export function computeInterest(
-  trades: Trade[],
-  calcs: Map<number, TradeCalc>,
-  accounts: Account[],
-  asOf: string
-): InterestLine[] {
-  const rateOf = new Map(accounts.map((a) => [a.code, a.interestPct]));
-  const groups = new Map<string, Trade[]>();
-  for (const t of trades) {
-    if (t.segment !== "NSEEQ" || t.date > asOf || !(rateOf.get(t.clientCode)! > 0)) continue;
-    const k = `${t.clientCode}|${t.script}`;
-    const list = groups.get(k);
-    if (list) list.push(t);
-    else groups.set(k, [t]);
-  }
-
-  const lines: InterestLine[] = [];
-  for (const list of groups.values()) {
-    const ratePct = rateOf.get(list[0].clientCode)!;
-    const charge = (lot: { t: Trade; qty: number }, toDate: string | null) => {
-      if (lot.qty <= 0 || lot.t.fullPayment || lot.t.tradeType !== "NRM") return;
-      const netRate = calcs.get(lot.t.id)?.netRate ?? lot.t.rate;
-      const amount = netRate * lot.qty;
-      const days = daysInclusive(lot.t.date, toDate ?? asOf);
-      lines.push({
-        clientCode: lot.t.clientCode, script: lot.t.script, buyDate: lot.t.date, toDate, qty: lot.qty,
-        netRate, amount, days, ratePct, interest: (amount * ratePct) / 100 / 365 * days,
-      });
-    };
-
-    const open: { t: Trade; qty: number }[] = []; // FIFO queue of held buys
-    const byDate = new Map<string, Trade[]>();
-    for (const t of [...list].sort((a, b) => a.addTime.localeCompare(b.addTime) || a.id - b.id)) {
-      const d = byDate.get(t.date);
-      if (d) d.push(t);
-      else byDate.set(t.date, [t]);
-    }
-    for (const date of [...byDate.keys()].sort()) {
-      const day = byDate.get(date)!;
-      const buys = day.filter((t) => t.side === "B").map((t) => ({ t, qty: t.qty }));
-      let sellQty = day.filter((t) => t.side === "S").reduce((s, t) => s + t.qty, 0);
-      // 1. Intraday: same-day sells close same-day buys — no interest.
-      for (const b of buys) {
-        const m = Math.min(b.qty, sellQty);
-        b.qty -= m;
-        sellQty -= m;
-      }
-      // 2. Remaining sells close the oldest held buys.
-      while (sellQty > 0 && open.length) {
-        const lot = open[0];
-        const m = Math.min(lot.qty, sellQty);
-        charge({ t: lot.t, qty: m }, date);
-        lot.qty -= m;
-        sellQty -= m;
-        if (lot.qty === 0) open.shift();
-      }
-      for (const b of buys) if (b.qty > 0) open.push(b);
-    }
-    for (const lot of open) charge(lot, null);
-  }
-  return lines.sort((a, b) => a.clientCode.localeCompare(b.clientCode) || a.buyDate.localeCompare(b.buyDate) || a.script.localeCompare(b.script));
-}
-
 export interface LedgerRow {
   account: Account;
   opening: number; // signed: Cr positive, Dr negative
+  deposits: number; // net of manual entries: deposits + journal Cr − withdrawals − journal Dr
   grossRealized: number;
   brokerage: number;
   interest: number;
@@ -465,17 +381,26 @@ export interface LedgerRow {
   equity: number;
 }
 
-/** Current Balance = Opening (+Cr / −Dr) + Realized P&L − Brokerage − Interest. */
-export function computeLedger(accounts: Account[], positions: Position[], interest: InterestLine[] = []): LedgerRow[] {
+/**
+ * Current Balance = Opening (+Cr / −Dr) + Deposits (net) + Realized P&L − Brokerage − Interest.
+ * `interest` and `deposits` are per client code (interest from the ledger engine).
+ */
+export function computeLedger(
+  accounts: Account[],
+  positions: Position[],
+  interest: Map<string, number> = new Map(),
+  deposits: Map<string, number> = new Map()
+): LedgerRow[] {
   return accounts.map((account) => {
     const mine = positions.filter((p) => p.clientCode === account.code);
     const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;
+    const dep = deposits.get(account.code) ?? 0;
     const grossRealized = mine.reduce((s, p) => s + p.grossRealized, 0);
     const brokerage = mine.reduce((s, p) => s + p.brokerage, 0);
-    const int = interest.filter((l) => l.clientCode === account.code).reduce((s, l) => s + l.interest, 0);
+    const int = interest.get(account.code) ?? 0;
     const unrealized = mine.reduce((s, p) => s + p.grossMtm, 0);
-    const balance = opening + grossRealized - brokerage - int;
-    return { account, opening, grossRealized, brokerage, interest: int, balance, unrealized, equity: balance + unrealized };
+    const balance = opening + dep + grossRealized - brokerage - int;
+    return { account, opening, deposits: dep, grossRealized, brokerage, interest: int, balance, unrealized, equity: balance + unrealized };
   });
 }
 

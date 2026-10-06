@@ -1,0 +1,292 @@
+import { addDays, type TradeCalc } from "./engine";
+import type { Account, LedgerEntry, Settlement, Trade } from "./types";
+
+// Client money ledger with interest on the funded amount (NSE equity only).
+//
+//   Margin used   = cost (net buy rate × qty, brokerage included) of open
+//                   delivery lots; a lot counts from its buy day through its
+//                   sell day. Same-day (intraday) trades and Full Payment buys
+//                   use no margin.
+//   Client money  = opening balance + deposits − withdrawals ± journals
+//                   + P&L and MTM posted at monthly settlements
+//                   − interest posted at monthly settlements.
+//                   Trade P&L is NOT counted during the month — only when the
+//                   month is settled.
+//   Funded        = max(0, margin used − client money)
+//   Interest/day  = funded × Ledger Interest % ÷ 365
+//
+// Settlement (on the 1st): open lots are valued at the bhav close of the
+// price date and that MTM is posted; P&L of lots sold during the month is
+// posted (from bhav if the lot was carried through an earlier settlement);
+// the month's interest is posted. Positions keep their original cost in
+// margin used.
+
+export interface Portion {
+  script: string;
+  buyDate: string;
+  qty: number;
+  netBuyRate: number;
+  fullPayment: boolean;
+  closeDate: string | null;
+  sellNetRate: number | null;
+}
+
+interface IntradayPnl {
+  script: string;
+  date: string;
+  pnl: number;
+}
+
+/** Splits a client's NSE equity NRM trades into delivery lots (FIFO) and intraday P&L. */
+export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) {
+  const portions: Portion[] = [];
+  const intraday: IntradayPnl[] = [];
+  const warnings: string[] = [];
+  const net = (t: Trade) => calcs.get(t.id)?.netRate ?? t.rate;
+
+  const byScript = new Map<string, Trade[]>();
+  for (const t of trades) {
+    if (t.segment !== "NSEEQ") continue;
+    if (t.tradeType !== "NRM") {
+      warnings.push(`${t.script} ${t.date}: ${t.tradeType} entry ignored in ledger`);
+      continue;
+    }
+    const list = byScript.get(t.script);
+    if (list) list.push(t);
+    else byScript.set(t.script, [t]);
+  }
+
+  for (const [script, list] of byScript) {
+    const open: { t: Trade; qty: number }[] = []; // FIFO
+    const sorted = [...list].sort((a, b) => a.date.localeCompare(b.date) || a.addTime.localeCompare(b.addTime) || a.id - b.id);
+    const dates = [...new Set(sorted.map((t) => t.date))];
+    for (const date of dates) {
+      const day = sorted.filter((t) => t.date === date);
+      const buys = day.filter((t) => t.side === "B").map((t) => ({ t, qty: t.qty }));
+      for (const sell of day.filter((t) => t.side === "S")) {
+        let left = sell.qty;
+        // 1. Same-day buys first: intraday.
+        for (const b of buys) {
+          const m = Math.min(b.qty, left);
+          if (!m) continue;
+          intraday.push({ script, date, pnl: (net(sell) - net(b.t)) * m });
+          b.qty -= m;
+          left -= m;
+        }
+        // 2. Then the oldest held lots.
+        while (left > 0 && open.length) {
+          const lot = open[0];
+          const m = Math.min(lot.qty, left);
+          portions.push({
+            script, buyDate: lot.t.date, qty: m, netBuyRate: net(lot.t), fullPayment: !!lot.t.fullPayment,
+            closeDate: date, sellNetRate: net(sell),
+          });
+          lot.qty -= m;
+          left -= m;
+          if (!lot.qty) open.shift();
+        }
+        if (left > 0) warnings.push(`${script} ${date}: sold ${left} more than held — ignored in ledger`);
+      }
+      for (const b of buys) if (b.qty > 0) open.push(b);
+    }
+    for (const lot of open) {
+      portions.push({
+        script, buyDate: lot.t.date, qty: lot.qty, netBuyRate: net(lot.t), fullPayment: !!lot.t.fullPayment,
+        closeDate: null, sellNetRate: null,
+      });
+    }
+  }
+  return { portions, intraday, warnings };
+}
+
+export type RowKind = "BF" | "BUY" | "RELEASE" | "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR" | "PNL" | "MTM" | "INTEREST";
+
+export interface StatementRow {
+  date: string; // date the change takes effect
+  kind: RowKind;
+  particulars: string;
+  debit: number; // to client money
+  credit: number;
+  marginChange: number;
+  money: number; // client money after this row (Cr +, Dr −)
+  margin: number; // margin used after this row
+  funded: number;
+  /** Interest from this row's date until the next row (only on the last row of a date). */
+  days: number;
+  interest: number;
+}
+
+export interface SettlementSummary {
+  settlement: Settlement;
+  periodFrom: string;
+  periodTo: string;
+  realized: number;
+  mtm: number;
+  interest: number;
+  missingPrices: string[];
+}
+
+export interface ClientLedger {
+  account: Account;
+  rows: StatementRow[];
+  settlements: SettlementSummary[];
+  postedInterest: number;
+  accruedInterest: number; // since the last settlement, up to asOf (not yet posted)
+  pendingPnl: number; // P&L of the current month, posted at the next settlement
+  money: number;
+  margin: number;
+  funded: number;
+  warnings: string[];
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const fmtQty = (n: number) => n.toLocaleString("en-IN");
+const fmtRate = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dmy = (d: string) => d.split("-").reverse().join("-");
+
+/** Statement and interest for one client, up to `asOf` (inclusive). */
+export function computeClientLedger(
+  account: Account,
+  trades: Trade[],
+  calcs: Map<number, TradeCalc>,
+  entries: LedgerEntry[],
+  allSettlements: Settlement[],
+  asOf: string
+): ClientLedger {
+  const mine = trades.filter((t) => t.clientCode === account.code && t.date <= asOf);
+  const { portions, intraday, warnings } = buildEquityLots(mine, calcs);
+  const myEntries = entries.filter((e) => e.clientCode === account.code && e.date <= asOf);
+  const settlements = allSettlements.filter((s) => s.settleDate <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  const rate = account.interestPct / 100 / 365;
+
+  // --- Settlement P&L per portion: MTM at each bhav, realized at the settlement after the sale.
+  const realizedAt = new Map<number, number>(); // settlement index → realized P&L
+  const mtmAt = new Map<number, number>();
+  const missing = new Map<number, Set<string>>();
+  let pendingPnl = 0;
+  const add = (m: Map<number, number>, i: number, v: number) => m.set(i, (m.get(i) ?? 0) + v);
+  for (const p of portions) {
+    let carry = p.netBuyRate;
+    settlements.forEach((s, i) => {
+      const heldAtPrice = p.buyDate <= s.priceDate && (p.closeDate === null || p.closeDate > s.priceDate);
+      if (!heldAtPrice) return;
+      const price = s.prices[p.script];
+      if (!(price > 0)) {
+        if (!missing.has(i)) missing.set(i, new Set());
+        missing.get(i)!.add(p.script);
+        return;
+      }
+      add(mtmAt, i, (price - carry) * p.qty);
+      carry = price;
+    });
+    if (p.closeDate !== null) {
+      const pnl = (p.sellNetRate! - carry) * p.qty;
+      const i = settlements.findIndex((s) => s.priceDate >= p.closeDate!);
+      if (i >= 0) add(realizedAt, i, pnl);
+      else pendingPnl += pnl;
+    }
+  }
+  for (const x of intraday) {
+    const i = settlements.findIndex((s) => s.priceDate >= x.date);
+    if (i >= 0) add(realizedAt, i, x.pnl);
+    else pendingPnl += x.pnl;
+  }
+
+  // --- Effective-dated changes (settlement rows are added during the walk).
+  type Change = { date: string; kind: RowKind; particulars: string; money: number; margin: number };
+  const changes: Change[] = [];
+  for (const p of portions) {
+    if (p.fullPayment) continue;
+    const amount = p.netBuyRate * p.qty;
+    changes.push({
+      date: p.buyDate, kind: "BUY", money: 0, margin: amount,
+      particulars: `BUY ${fmtQty(p.qty)} ${p.script} @ ${fmtRate(p.netBuyRate)} (net)`,
+    });
+    if (p.closeDate !== null && addDays(p.closeDate, 1) <= asOf) {
+      changes.push({
+        date: addDays(p.closeDate, 1), kind: "RELEASE", money: 0, margin: -amount,
+        particulars: `Margin released: SOLD ${fmtQty(p.qty)} ${p.script} on ${dmy(p.closeDate)}`,
+      });
+    }
+  }
+  const ENTRY_LABEL: Record<LedgerEntry["kind"], string> = {
+    DEPOSIT: "Deposit", WITHDRAWAL: "Withdrawal / Payout", JOURNAL_CR: "Journal Cr", JOURNAL_DR: "Journal Dr",
+  };
+  for (const e of myEntries) {
+    const credit = e.kind === "DEPOSIT" || e.kind === "JOURNAL_CR";
+    changes.push({
+      date: e.date, kind: e.kind, margin: 0, money: credit ? e.amount : -e.amount,
+      particulars: `${ENTRY_LABEL[e.kind]}${e.narration ? ` — ${e.narration}` : ""}`,
+    });
+  }
+  const order: RowKind[] = ["PNL", "MTM", "INTEREST", "DEPOSIT", "JOURNAL_CR", "WITHDRAWAL", "JOURNAL_DR", "BUY", "RELEASE"];
+  changes.sort((a, b) => a.date.localeCompare(b.date) || order.indexOf(a.kind) - order.indexOf(b.kind));
+
+  const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;
+  const firstDate = [changes[0]?.date, settlements[0]?.settleDate].filter(Boolean).sort()[0];
+  const rows: StatementRow[] = [];
+  const summaries: SettlementSummary[] = [];
+  let money = opening;
+  let margin = 0;
+  let periodInterest = 0;
+  let postedInterest = 0;
+  let periodFrom = firstDate ?? asOf;
+  let ci = 0;
+  let si = 0;
+
+  const push = (date: string, kind: RowKind, particulars: string, moneyDelta: number, marginDelta: number) => {
+    money += moneyDelta;
+    margin += marginDelta;
+    if (Math.abs(margin) < 0.005) margin = 0;
+    rows.push({
+      date, kind, particulars,
+      debit: moneyDelta < 0 ? -moneyDelta : 0, credit: moneyDelta > 0 ? moneyDelta : 0, marginChange: marginDelta,
+      money, margin, funded: Math.max(0, margin - money), days: 0, interest: 0,
+    });
+  };
+
+  if (firstDate) {
+    push(firstDate, "BF", "Opening balance", 0, 0);
+    rows[0].money = money = opening;
+    rows[0].credit = opening > 0 ? opening : 0;
+    rows[0].debit = opening < 0 ? -opening : 0;
+    rows[0].funded = Math.max(0, margin - money);
+
+    for (let d = firstDate; d <= asOf; d = addDays(d, 1)) {
+      // Month boundary: a b/f row so each month's interest stays within that month.
+      if (d.endsWith("-01") && d !== firstDate) push(d, "BF", "Balance brought forward", 0, 0);
+      // Settlement on its date: post P&L, MTM and the closed period's interest first.
+      while (si < settlements.length && settlements[si].settleDate === d) {
+        const s = settlements[si];
+        const realized = realizedAt.get(si) ?? 0;
+        const mtm = mtmAt.get(si) ?? 0;
+        const interest = round2(periodInterest);
+        if (realized) push(d, "PNL", `Settlement ${dmy(s.settleDate)}: P&L on trades closed till ${dmy(s.priceDate)}`, round2(realized), 0);
+        if (mtm) push(d, "MTM", `Settlement ${dmy(s.settleDate)}: MTM of open positions @ bhav ${dmy(s.priceDate)}`, round2(mtm), 0);
+        if (interest) push(d, "INTEREST", `Interest ${dmy(periodFrom)} to ${dmy(addDays(d, -1))} @ ${account.interestPct}%`, -interest, 0);
+        summaries.push({
+          settlement: s, periodFrom, periodTo: addDays(d, -1), realized: round2(realized), mtm: round2(mtm), interest,
+          missingPrices: [...(missing.get(si) ?? [])].sort(),
+        });
+        postedInterest += interest;
+        periodInterest = 0;
+        periodFrom = d;
+        si++;
+      }
+      while (ci < changes.length && changes[ci].date === d) {
+        const c = changes[ci++];
+        push(d, c.kind, c.particulars, c.money, c.margin);
+      }
+      const dayInterest = Math.max(0, margin - money) * rate;
+      periodInterest += dayInterest;
+      const last = rows[rows.length - 1];
+      last.days += 1;
+      last.interest += dayInterest;
+    }
+  }
+
+  return {
+    account, rows, settlements: summaries, postedInterest, accruedInterest: periodInterest, pendingPnl,
+    money, margin, funded: Math.max(0, margin - money), warnings,
+  };
+}
