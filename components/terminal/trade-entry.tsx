@@ -31,7 +31,7 @@ interface Form {
 const today = () => toDateStr(new Date());
 
 const initialForm = (): Form => ({
-  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: false, fullPayment: false,
+  date: today(), valan: valanFor(today()), segment: "NSEFUT", side: "B", tradeType: "NRM", checkHL: true, fullPayment: false,
   script: "", option: "", strike: "", lot: "", qty: "", rate: "", clientCode: "",
 });
 
@@ -189,7 +189,7 @@ export function TradeEntry({
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
     const rate = num(rateStr);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
-    if (form.checkHL) {
+    if (form.checkHL && form.date === today()) { // day range only means something for today
       if (!tick) return fail("Check HL: no live high/low for this contract — untick Check HL to save", rateRef.current);
       if (rate < tick.low || rate > tick.high)
         return fail(`Rate ${fmt2(rate)} outside day range L ${fmt2(tick.low)} – H ${fmt2(tick.high)}`, rateRef.current);
