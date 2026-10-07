@@ -22,6 +22,8 @@ create table if not exists public.accounts (
   interest_pct numeric(6, 2) not null default 0,
   created_at timestamptz not null default now()
 );
+-- Most NSEFUT lots the client may hold open in total across all contracts (0 = no limit).
+alter table public.accounts add column if not exists max_fut_lots integer not null default 0 check (max_fut_lots >= 0);
 
 -- ---------------------------------------------------------------------------
 -- Brokerage slabs (one per client + segment + script scope)

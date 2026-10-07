@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
-  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, quoteKey, lotFromQty, snapQty,
+  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
@@ -196,6 +196,14 @@ export function TradeEntry({
     }
     if (!account) return fail(`Invalid client code "${form.clientCode}"`, clientRef.current);
     if (!draft) return;
+    if (form.segment === "NSEFUT" && account.maxFutLots > 0) {
+      // Limit on open lots across all NSEFUT contracts; trades that reduce the position are always allowed.
+      const others = data.trades.filter((t) => t.id !== editingId);
+      const before = openFutLots(data.trades, INSTRUMENTS, account.code, draft.date);
+      const after = openFutLots([...others, draft], INSTRUMENTS, account.code, draft.date);
+      if (after > account.maxFutLots && after > before)
+        return fail(`${account.code} limit is ${fmt0(account.maxFutLots)} NSEFUT lots — open now ${fmt0(before)}, this trade would make ${fmt0(after)}`, lotRef.current);
+    }
 
     setSaving(true);
     const res = await actions.saveTrade(editingId != null ? draft : { ...draft, id: undefined });

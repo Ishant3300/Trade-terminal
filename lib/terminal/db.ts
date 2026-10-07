@@ -15,6 +15,7 @@ export interface AccountRow {
   address: string;
   remark: string;
   interest_pct: number;
+  max_fut_lots?: number; // absent until schema.sql adds the column
 }
 
 export interface SlabRow {
@@ -70,6 +71,7 @@ export const accountFromRow = (r: AccountRow): Account => ({
   address: r.address,
   remark: r.remark,
   interestPct: Number(r.interest_pct),
+  maxFutLots: Number(r.max_fut_lots ?? 0),
 });
 
 export const accountToRow = (a: Account): AccountRow => ({
@@ -83,6 +85,7 @@ export const accountToRow = (a: Account): AccountRow => ({
   address: a.address,
   remark: a.remark,
   interest_pct: a.interestPct,
+  max_fut_lots: a.maxFutLots,
 });
 
 export const slabFromRow = (r: SlabRow): Slab => ({

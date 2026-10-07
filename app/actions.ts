@@ -161,12 +161,19 @@ export async function deleteSlab(id: number): Promise<Result> {
 /** originalCode set = update (code may change; trades and slabs follow via ON UPDATE CASCADE). */
 export async function saveAccount(account: Account, originalCode?: string): Promise<Result<Account>> {
   if (!(await sessionUser())) return NOT_LOGGED_IN;
+  const write = (row: AccountRow) =>
+    (originalCode ? db().from("accounts").update(row).eq("code", originalCode) : db().from("accounts").insert(row))
+      .select()
+      .single<AccountRow>();
   const row = accountToRow(account);
-  const query = originalCode
-    ? db().from("accounts").update(row).eq("code", originalCode)
-    : db().from("accounts").insert(row);
-  const { data, error } = await query.select().single<AccountRow>();
-  if (error) return { ok: false, error: error.code === "23505" ? `Account Code ${account.code} already exists` : friendly(error) };
+  let { data, error } = await write(row);
+  // Database not yet migrated (no max_fut_lots column): save without it.
+  if (error && /max_fut_lots/.test(error.message)) {
+    if (account.maxFutLots) return { ok: false, error: "Max NSEFUT Lots needs the database update — run supabase/schema.sql" };
+    delete row.max_fut_lots;
+    ({ data, error } = await write(row));
+  }
+  if (error || !data) return { ok: false, error: !error ? "Not saved" : error.code === "23505" ? `Account Code ${account.code} already exists` : friendly(error) };
   return { ok: true, data: accountFromRow(data) };
 }
 

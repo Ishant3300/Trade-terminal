@@ -17,6 +17,7 @@ interface Form {
   address: string;
   remark: string;
   interestPct: string;
+  maxFutLots: string;
 }
 
 const PREFIX: Record<AccountType, string> = { Customer: "C", Self: "S", Broker: "B" };
@@ -31,7 +32,7 @@ function nextCode(accounts: Account[], type: AccountType): string {
 
 const empty = (accounts: Account[]): Form => ({
   name: "", type: "Customer", code: nextCode(accounts, "Customer"), openingBalance: "", openingType: "Cr",
-  mobile: "", email: "", address: "", remark: "", interestPct: "",
+  mobile: "", email: "", address: "", remark: "", interestPct: "", maxFutLots: "",
 });
 
 export function AccountMaster({ data, actions }: { data: TerminalData; actions: TerminalActions }) {
@@ -56,6 +57,7 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
       openingBalance: Math.abs(Number(form.openingBalance) || 0), openingType: form.openingType,
       mobile: form.mobile, email: form.email.trim(), address: form.address.trim(), remark: form.remark.trim(),
       interestPct: Number(form.interestPct) || 0,
+      maxFutLots: Math.floor(Number(form.maxFutLots) || 0),
     };
     const res = await actions.saveAccount(account, editing ?? undefined);
     if (!res.ok) return setMessage({ ok: false, text: `Not saved: ${res.error}` });
@@ -70,6 +72,7 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
       name: a.name, type: a.type, code: a.code, openingBalance: a.openingBalance ? String(a.openingBalance) : "",
       openingType: a.openingType, mobile: a.mobile, email: a.email, address: a.address, remark: a.remark,
       interestPct: a.interestPct ? String(a.interestPct) : "",
+      maxFutLots: a.maxFutLots ? String(a.maxFutLots) : "",
     });
     setMessage(null);
   };
@@ -139,6 +142,10 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
             <Field label="Ledger Interest %" width={100}>
               <input className="tt-input num" inputMode="decimal" value={form.interestPct} onChange={(e) => set("interestPct", e.target.value.replace(/[^\d.]/g, ""))} />
             </Field>
+            <Field label="Max NSEFUT Lots" width={110}>
+              <input className="tt-input num" inputMode="numeric" placeholder="No limit" value={form.maxFutLots}
+                onChange={(e) => set("maxFutLots", e.target.value.replace(/\D/g, ""))} />
+            </Field>
             <button type="button" className="tt-btn tt-btn-save" onClick={save}>{editing ? "Update" : "Save"}</button>
             <button type="button" className="tt-btn" onClick={() => { setEditing(null); setForm(empty(data.accounts)); setMessage(null); }}>Cancel</button>
           </div>
@@ -157,7 +164,7 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
             <thead>
               <tr>
                 <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Opening Balance</th><th className="ctr">Dr/Cr</th>
-                <th>Mobile</th><th>Email</th><th>Address</th><th>Remark</th><th className="num">Interest %</th><th className="ctr">Edit</th><th className="ctr">Delete</th>
+                <th>Mobile</th><th>Email</th><th>Address</th><th>Remark</th><th className="num">Interest %</th><th className="num">Max FUT Lots</th><th className="ctr">Edit</th><th className="ctr">Delete</th>
               </tr>
             </thead>
             <tbody>
@@ -173,11 +180,12 @@ export function AccountMaster({ data, actions }: { data: TerminalData; actions: 
                   <td>{a.address}</td>
                   <td>{a.remark}</td>
                   <td className="num">{a.interestPct ? a.interestPct.toFixed(2) : ""}</td>
+                  <td className="num">{a.maxFutLots || ""}</td>
                   <td className="ctr"><button type="button" className="tt-btn tt-btn-blue tt-btn-xs" onClick={() => edit(a)}>Edit</button></td>
                   <td className="ctr"><button type="button" className="tt-btn tt-btn-red tt-btn-xs" onClick={() => remove(a)}>Delete</button></td>
                 </tr>
               ))}
-              {list.length === 0 && <tr><td colSpan={12} className="empty">No accounts.</td></tr>}
+              {list.length === 0 && <tr><td colSpan={13} className="empty">No accounts.</td></tr>}
             </tbody>
           </table>
         </div>

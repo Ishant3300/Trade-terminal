@@ -265,6 +265,25 @@ export function computeTradeCalcs(
   return result;
 }
 
+/**
+ * Open NSEFUT lots of one client on `asOf`, all contracts together:
+ * Σ |net qty ÷ lot size| over unexpired contracts, trades up to `asOf`.
+ */
+export function openFutLots(trades: Trade[], instruments: Instrument[], clientCode: string, asOf: string): number {
+  const net = new Map<string, number>();
+  for (const t of trades) {
+    if (t.clientCode !== clientCode || t.segment !== "NSEFUT" || t.date > asOf) continue;
+    net.set(t.script, (net.get(t.script) ?? 0) + (t.side === "B" ? t.qty : -t.qty));
+  }
+  let lots = 0;
+  for (const [script, qty] of net) {
+    const inst = findInstrument(instruments, "NSEFUT", script);
+    if (!inst || !qty || (inst.expiry && inst.expiry < asOf)) continue;
+    lots += Math.abs(qty) / inst.lotSize;
+  }
+  return lots;
+}
+
 // ---------------------------------------------------------------------------
 // Positions & ledger
 // ---------------------------------------------------------------------------

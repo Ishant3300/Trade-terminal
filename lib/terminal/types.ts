@@ -54,6 +54,8 @@ export interface Account {
   address: string;
   remark: string;
   interestPct: number;
+  /** Most NSEFUT lots open at once, all contracts together (0 = no limit). */
+  maxFutLots: number;
 }
 
 export type SlabMode = "PCT" | "FIX";
