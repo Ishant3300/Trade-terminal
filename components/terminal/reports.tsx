@@ -230,14 +230,14 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Opening (+Cr / −Dr) + Deposits (net) + P&amp;L − Brokerage − Interest · P&amp;L includes open positions · interest per Ledger tab</span>
+          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Opening (+Cr / −Dr) + Deposits (net) + P&amp;L − Interest · P&amp;L includes open positions, net of brokerage · interest per Ledger tab</span>
         </div>
         <div className="tt-grid-wrap">
           <table className="tt-grid">
             <thead>
               <tr>
                 <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Opening</th><th className="num">Deposits (net)</th><th className="num">P&amp;L</th>
-                <th className="num">Brokerage</th><th className="num">Interest</th>
+                <th className="num">Interest</th>
                 <th className="num">Net Equity</th><th className="num">Int. %</th>
               </tr>
             </thead>
@@ -249,8 +249,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
                   <td>{r.account.type}</td>
                   <td className={`num ${r.opening < 0 ? "neg" : ""}`}>{drCr(r.opening)}</td>
                   <td className="num">{fmt2(r.deposits)}</td>
-                  <td className="num"><PnL value={r.grossRealized + r.unrealized} /></td>
-                  <td className="num">{fmt2(r.brokerage)}</td>
+                  <td className="num"><PnL value={r.grossRealized + r.unrealized - r.brokerage} /></td>
                   <td className="num">{fmt2(r.interest)}</td>
                   <td className={`num ${r.equity < 0 ? "neg" : "pos"}`} style={{ fontWeight: 700 }}>{drCr(r.equity)}</td>
                   <td className="num">{r.account.interestPct ? r.account.interestPct.toFixed(2) : ""}</td>
@@ -262,8 +261,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
                 <td colSpan={3}>Total</td>
                 <td className="num">{drCr(lt.opening)}</td>
                 <td className="num">{fmt2(lt.dep)}</td>
-                <td className="num"><PnL value={lt.gross + lt.unr} /></td>
-                <td className="num">{fmt2(lt.brk)}</td>
+                <td className="num"><PnL value={lt.gross + lt.unr - lt.brk} /></td>
                 <td className="num">{fmt2(lt.int)}</td>
                 <td className="num">{drCr(lt.eq)}</td>
                 <td></td>

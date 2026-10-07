@@ -113,44 +113,42 @@ export async function buildReportPdf(input: ReportPdfInput) {
     doc.addPage();
     y = 18;
   }
-  section("Client Ledger", "—  Net Equity = Opening (+Cr / -Dr) + Deposits (net) + P&L - Brokerage - Interest  ·  P&L includes open positions");
+  section("Client Ledger", "—  Net Equity = Opening (+Cr / -Dr) + Deposits (net) + P&L - Interest  ·  P&L includes open positions, net of brokerage");
   const t = input.ledgerTotals;
   autoTable(doc, {
     ...tableTheme,
     startY: y,
     margin: { left: M, right: M, top: 16, bottom: 16 },
-    head: [["Code", "Account Name", "Type", "Opening", "Deposits (net)", "P&L", "Brokerage", "Interest", "Net Equity", "Int. %"]],
+    head: [["Code", "Account Name", "Type", "Opening", "Deposits (net)", "P&L", "Interest", "Net Equity", "Int. %"]],
     body: input.ledger.map((r) => [
       r.account.code,
       r.account.name,
       r.account.type,
       crDr(r.opening),
       amt(r.deposits),
-      amt(r.grossRealized + r.unrealized),
-      amt(r.brokerage),
+      amt(r.grossRealized + r.unrealized - r.brokerage),
       amt(r.interest),
       crDr(r.equity),
       r.account.interestPct ? r.account.interestPct.toFixed(2) : "",
     ]),
-    foot: [[{ content: "Total", colSpan: 3 }, crDr(t.opening), amt(t.dep), amt(t.gross + t.unr), amt(t.brk), amt(t.int), crDr(t.eq), ""]],
+    foot: [[{ content: "Total", colSpan: 3 }, crDr(t.opening), amt(t.dep), amt(t.gross + t.unr - t.brk), amt(t.int), crDr(t.eq), ""]],
     showHead: "everyPage",
     showFoot: "lastPage",
     columnStyles: {
       0: { cellWidth: 14, fontStyle: "bold" }, 1: { cellWidth: "auto" }, 2: { cellWidth: 17 },
-      3: { cellWidth: 31, halign: "right" }, 4: { cellWidth: 28, halign: "right" }, 5: { cellWidth: 28, halign: "right" },
-      6: { cellWidth: 25, halign: "right" }, 7: { cellWidth: 25, halign: "right" }, 8: { cellWidth: 33, halign: "right", fontStyle: "bold" },
-      9: { cellWidth: 14, halign: "right" },
+      3: { cellWidth: 34, halign: "right" }, 4: { cellWidth: 31, halign: "right" }, 5: { cellWidth: 34, halign: "right" },
+      6: { cellWidth: 30, halign: "right" }, 7: { cellWidth: 36, halign: "right", fontStyle: "bold" }, 8: { cellWidth: 14, halign: "right" },
     },
     didParseCell: (d) => {
       if ((d.section === "head" && d.column.index >= 3) || (d.section === "foot" && d.column.index >= 3)) d.cell.styles.halign = "right";
       const r = d.section === "body" ? input.ledger[d.row.index] : null;
       const opening = r ? r.opening : t.opening;
-      const pnl = r ? r.grossRealized + r.unrealized : t.gross + t.unr;
+      const pnl = r ? r.grossRealized + r.unrealized - r.brokerage : t.gross + t.unr - t.brk;
       const equity = r ? r.equity : t.eq;
       if (d.section === "head") return;
       if (d.column.index === 3 && opening < -0.004) d.cell.styles.textColor = RED;
       if (d.column.index === 5) d.cell.styles.textColor = pnlColor(pnl);
-      if (d.column.index === 8) d.cell.styles.textColor = equity < -0.004 ? RED : GREEN;
+      if (d.column.index === 7) d.cell.styles.textColor = equity < -0.004 ? RED : GREEN;
     },
   });
 
