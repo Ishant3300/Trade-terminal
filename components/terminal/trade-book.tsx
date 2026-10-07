@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { addDays, contractLabel, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc } from "@/lib/terminal/engine";
+import { addDays, contractLabel, fmt0, fmt2, fmtDate, fmtLots, toDateStr, type TradeCalc } from "@/lib/terminal/engine";
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
 import { downloadCsv, Field } from "./ui";
 
@@ -60,7 +60,7 @@ export function TradeBook({ data, calcs }: { data: TerminalData; calcs: Map<numb
         const c = calcs.get(t.id);
         return [
           t.ot, fmtDate(t.date), t.clientCode, nameOf.get(t.clientCode) ?? "", t.segment, contractLabel(t), t.side === "B" ? "BUY" : "SELL",
-          t.lot, t.qty, t.rate.toFixed(2), (c?.netRate ?? t.rate).toFixed(4), (c?.brokerage ?? 0).toFixed(2), t.tradeType, t.user, t.ip, t.addTime,
+          Math.round((t.qty / (c?.lotSize || 1)) * 100) / 100, t.qty, t.rate.toFixed(2), (c?.netRate ?? t.rate).toFixed(4), (c?.brokerage ?? 0).toFixed(2), t.tradeType, t.user, t.ip, t.addTime,
         ];
       })
     );
@@ -125,7 +125,7 @@ export function TradeBook({ data, calcs }: { data: TerminalData; calcs: Map<numb
                   <td>{t.clientCode} - {nameOf.get(t.clientCode) ?? "?"}</td>
                   <td>{contractLabel(t)} <span className="tt-muted">{t.segment}</span></td>
                   <td className={t.side === "B" ? "b-txt" : "s-txt"}>{t.side === "B" ? "BUY" : "SELL"}</td>
-                  <td className="num">{fmt0(t.lot)}</td>
+                  <td className="num">{fmtLots(t.qty / (calcs.get(t.id)?.lotSize || 1))}</td>
                   <td className="num">{fmt0(t.qty)}</td>
                   <td className="num">{fmt2(t.rate)}</td>
                   <td className="num" style={{ fontWeight: 600 }}>{fmt2(calcs.get(t.id)?.netRate ?? t.rate)}</td>

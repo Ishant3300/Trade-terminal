@@ -2,11 +2,11 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
-  computeTradeCalcs, fmt2, fmt0, fmtDate, findInstrument, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
+  computeTradeCalcs, fmt2, fmt0, fmtDate, fmtLots, findInstrument, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
-import { DERIVATIVE_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
+import { DERIVATIVE_SEGMENTS, PART_LOT_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
 import { useLiveQuotes } from "./quotes";
 import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
@@ -36,6 +36,9 @@ const initialForm = (): Form => ({
 });
 
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
+/** Lot field text for a quantity: whole lots, or part lots to 2 decimals where allowed. */
+const lotText = (qty: number, lotSize: number, segment: Segment) =>
+  String(PART_LOT_SEGMENTS.has(segment) ? Math.round((qty / lotSize) * 100) / 100 : lotFromQty(qty, lotSize));
 
 export function TradeEntry({
   data, actions, calcs,
@@ -98,7 +101,7 @@ export function TradeEntry({
       const next = { ...f, script };
       const i = findInstrument(INSTRUMENTS, f.segment, script);
       const lot = num(f.lot);
-      if (i && lot > 0) next.qty = String(lot * i.lotSize);
+      if (i && lot > 0) next.qty = String(Math.round(lot * i.lotSize));
       return next;
     });
   };
@@ -106,13 +109,13 @@ export function TradeEntry({
   const setLot = (lot: string) =>
     setForm((f) => {
       const l = num(lot);
-      return { ...f, lot, qty: lotSize && l >= 0 ? String(l * lotSize) : f.qty };
+      return { ...f, lot, qty: lotSize && l >= 0 ? String(Math.round(l * lotSize)) : f.qty };
     });
 
   const setQty = (qty: string) =>
     setForm((f) => {
       const q = num(qty);
-      return { ...f, qty, lot: lotSize && q >= 0 ? String(lotFromQty(q, lotSize)) : f.lot };
+      return { ...f, qty, lot: lotSize && q >= 0 ? lotText(q, lotSize, f.segment) : f.lot };
     });
 
   const snapQtyOnBlur = () => {
@@ -120,7 +123,7 @@ export function TradeEntry({
     if (!lotSize || !(q > 0)) return;
     const snapped = snapQty(q, lotSize, form.segment);
     if (snapped !== q) setMessage({ ok: true, text: `Quantity rounded to ${fmt0(snapped)} (${snapped / lotSize} lot × ${lotSize})` });
-    setForm((f) => ({ ...f, qty: String(snapped), lot: String(lotFromQty(snapped, lotSize)) }));
+    setForm((f) => ({ ...f, qty: String(snapped), lot: lotText(snapped, lotSize, f.segment) }));
   };
 
   // ---- Draft trade & live net rate -------------------------------------------------
@@ -185,7 +188,8 @@ export function TradeEntry({
     if (isOpt && !(num(form.strike) > 0)) return fail("Enter strike price", strikeRef.current);
     const qty = num(form.qty);
     if (!(qty > 0)) return fail("Enter quantity / lot", lotRef.current);
-    if (DERIVATIVE_SEGMENTS.has(form.segment) && qty % inst.lotSize !== 0)
+    if (!Number.isInteger(qty)) return fail("Quantity must be a whole number", qtyRef.current);
+    if (DERIVATIVE_SEGMENTS.has(form.segment) && !PART_LOT_SEGMENTS.has(form.segment) && qty % inst.lotSize !== 0)
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
     const rate = num(rateStr);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
@@ -202,7 +206,7 @@ export function TradeEntry({
       const before = openFutLots(data.trades, INSTRUMENTS, account.code, draft.date);
       const after = openFutLots([...others, draft], INSTRUMENTS, account.code, draft.date);
       if (after > account.maxFutLots && after > before)
-        return fail(`${account.code} limit is ${fmt0(account.maxFutLots)} NSEFUT lots — open now ${fmt0(before)}, this trade would make ${fmt0(after)}`, lotRef.current);
+        return fail(`${account.code} limit is ${fmt0(account.maxFutLots)} NSEFUT lots — open now ${fmtLots(before)}, this trade would make ${fmtLots(after)}`, lotRef.current);
     }
 
     setSaving(true);
@@ -226,7 +230,7 @@ export function TradeEntry({
     setForm((f) => ({
       ...f, date: t.date, valan: t.valan, segment: t.segment, side: t.side, tradeType: t.tradeType,
       script: t.script, option: t.option, strike: t.strike ? String(t.strike) : "",
-      lot: String(t.lot), qty: String(t.qty), rate: String(t.rate), clientCode: t.clientCode, fullPayment: !!t.fullPayment,
+      lot: lotText(t.qty, calcs.get(t.id)?.lotSize || 1, t.segment), qty: String(t.qty), rate: String(t.rate), clientCode: t.clientCode, fullPayment: !!t.fullPayment,
     }));
     setMessage({ ok: true, text: `Editing trade #${t.id} — change fields and press Alt+S / Save` });
     setTimeout(() => qtyRef.current?.focus(), 0);
@@ -404,8 +408,8 @@ export function TradeEntry({
               <input className="tt-input num" readOnly tabIndex={-1} value={lotSize || ""} />
             </Field>
             <Field label="Lot" width={56}>
-              <input ref={lotRef} className="tt-input num" inputMode="numeric" value={form.lot}
-                onChange={(e) => setLot(e.target.value.replace(/\D/g, ""))} />
+              <input ref={lotRef} className="tt-input num" inputMode="decimal" value={form.lot}
+                onChange={(e) => setLot(PART_LOT_SEGMENTS.has(form.segment) ? e.target.value.replace(/[^\d.]/g, "") : e.target.value.replace(/\D/g, ""))} />
             </Field>
             <Field label="Quantity" required width={78}>
               <input ref={qtyRef} className="tt-input num" inputMode="numeric" value={form.qty}
@@ -491,7 +495,7 @@ export function TradeEntry({
                     <td>{t.option ? `${t.strike} ${t.option}` : ""}</td>
                     <td>{t.tradeType}{t.fullPayment && <span className="tt-muted" title="Full payment — no interest"> FP</span>}</td>
                     <td className={t.side === "B" ? "b-txt" : "s-txt"}>{t.side === "B" ? "BUY" : "SELL"}</td>
-                    <td className="num">{fmt0(t.lot)}</td>
+                    <td className="num">{fmtLots(t.qty / (c?.lotSize || 1))}</td>
                     <td className="num">{fmt0(t.qty)}</td>
                     <td className="num">{fmt2(t.rate)}</td>
                     <td className="num" style={{ fontWeight: 600 }}

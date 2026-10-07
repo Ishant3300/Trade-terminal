@@ -2,6 +2,8 @@ export type Segment = "NSEFUT" | "NSEOPT" | "MCXFUT" | "NCDEX" | "NSEEQ";
 export const SEGMENTS: Segment[] = ["NSEFUT", "NSEOPT", "MCXFUT", "NCDEX", "NSEEQ"];
 /** Segments where quantity must be a whole multiple of the lot size. */
 export const DERIVATIVE_SEGMENTS: ReadonlySet<Segment> = new Set(["NSEFUT", "NSEOPT", "MCXFUT", "NCDEX"]);
+/** Derivative segments where any quantity may be traded (half lot, 75% of a lot …). */
+export const PART_LOT_SEGMENTS: ReadonlySet<Segment> = new Set(["NSEFUT"]);
 
 export type Side = "B" | "S";
 export type TradeType = "NRM" | "CF" | "BF";

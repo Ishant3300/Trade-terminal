@@ -2,6 +2,7 @@ import { MCX_FUTURES, NCDEX_FUTURES } from "./exchange-master";
 import { FO_LOTS } from "./fo-master";
 import {
   DERIVATIVE_SEGMENTS,
+  PART_LOT_SEGMENTS,
   type Account,
   type Instrument,
   type Segment,
@@ -109,9 +110,14 @@ export function lotFromQty(qty: number, lotSize: number): number {
   return lotSize > 0 ? Math.floor(qty / lotSize) : 0;
 }
 
-/** Derivative quantities snap to the nearest whole lot (minimum one lot). */
+/** Lots as shown on screen: qty ÷ lot size, part lots to 2 decimals (250 of 500 → "0.5"). */
+export function fmtLots(lots: number): string {
+  return lots.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+/** Derivative quantities snap to the nearest whole lot (minimum one lot), except part-lot segments. */
 export function snapQty(qty: number, lotSize: number, segment: Segment): number {
-  if (!DERIVATIVE_SEGMENTS.has(segment) || lotSize <= 1 || qty <= 0) return qty;
+  if (!DERIVATIVE_SEGMENTS.has(segment) || PART_LOT_SEGMENTS.has(segment) || lotSize <= 1 || qty <= 0) return qty;
   return Math.max(1, Math.round(qty / lotSize)) * lotSize;
 }
 
