@@ -72,7 +72,7 @@ export async function buildReportPdf(input: ReportPdfInput) {
     ...tableTheme,
     startY: y,
     margin: { left: M, right: M, top: 16, bottom: 16 },
-    head: [["Client", "Segment", "Script", "Buy Qty", "Avg Buy", "Sell Qty", "Avg Sell", "Net Qty", "LTP", "Realized P&L", "MTM"]],
+    head: [["Client", "Segment", "Script", "Buy Qty", "Avg Buy", "Sell Qty", "Avg Sell", "Net Qty", "LTP", "P&L"]],
     body: input.positions.map((p) => [
       `${p.clientCode} - ${input.nameOf.get(p.clientCode) ?? ""}`,
       p.segment,
@@ -83,29 +83,26 @@ export async function buildReportPdf(input: ReportPdfInput) {
       p.sellQty ? amt(p.avgSell) : "",
       qty(p.netQty),
       amt(p.lastRate),
-      amt(p.realized),
-      amt(p.mtm),
+      amt(p.realized + p.mtm),
     ]),
-    foot: [[{ content: "Total (net of brokerage)", colSpan: 9 }, amt(input.positionTotals.realized), amt(input.positionTotals.mtm)]],
+    foot: [[{ content: "Total (net of brokerage)", colSpan: 9 }, amt(input.positionTotals.realized + input.positionTotals.mtm)]],
     showHead: "everyPage",
     showFoot: "lastPage",
     columnStyles: {
       0: { cellWidth: 40 }, 1: { cellWidth: 17 }, 2: { cellWidth: "auto" },
       3: { cellWidth: 18, halign: "right" }, 4: { cellWidth: 21, halign: "right" }, 5: { cellWidth: 18, halign: "right" },
       6: { cellWidth: 21, halign: "right" }, 7: { cellWidth: 18, halign: "right", fontStyle: "bold" }, 8: { cellWidth: 20, halign: "right" },
-      9: { cellWidth: 25, halign: "right" }, 10: { cellWidth: 25, halign: "right", fontStyle: "bold" },
+      9: { cellWidth: 30, halign: "right", fontStyle: "bold" },
     },
     didParseCell: (d) => {
       if ((d.section === "head" && d.column.index >= 3) || (d.section === "foot" && d.column.index >= 9)) d.cell.styles.halign = "right";
-      if (d.section === "foot" && d.column.index === 9) d.cell.styles.textColor = pnlColor(input.positionTotals.realized);
-      if (d.section === "foot" && d.column.index === 10) d.cell.styles.textColor = pnlColor(input.positionTotals.mtm);
+      if (d.section === "foot" && d.column.index === 9) d.cell.styles.textColor = pnlColor(input.positionTotals.realized + input.positionTotals.mtm);
       if (d.section !== "body") return;
       const p = input.positions[d.row.index];
       if (d.column.index === 3) d.cell.styles.textColor = BLUE;
       if (d.column.index === 5) d.cell.styles.textColor = RED;
       if (d.column.index === 7) d.cell.styles.textColor = p.netQty > 0 ? BLUE : p.netQty < 0 ? RED : INK;
-      if (d.column.index === 9) d.cell.styles.textColor = pnlColor(p.realized);
-      if (d.column.index === 10) d.cell.styles.textColor = pnlColor(p.mtm);
+      if (d.column.index === 9) d.cell.styles.textColor = pnlColor(p.realized + p.mtm);
       if (d.column.index === 8 && !p.live) d.cell.styles.fontStyle = "italic";
     },
   });

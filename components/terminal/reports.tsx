@@ -139,8 +139,8 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
   const exportPositions = () =>
     downloadCsv(
       `net_position_as_on_${f.to}.csv`,
-      ["Client Code", "Client", "Segment", "Script", "Buy Qty", "Avg Buy Rate", "Sell Qty", "Avg Sell Rate", "Net Qty", "LTP", "Realized P&L", "MTM"],
-      positions.map((p) => [p.clientCode, nameOf.get(p.clientCode) ?? "", p.segment, p.label, p.buyQty, p.avgBuy.toFixed(4), p.sellQty, p.avgSell.toFixed(4), p.netQty, p.lastRate.toFixed(2), p.realized.toFixed(2), p.mtm.toFixed(2)])
+      ["Client Code", "Client", "Segment", "Script", "Buy Qty", "Avg Buy Rate", "Sell Qty", "Avg Sell Rate", "Net Qty", "LTP", "P&L"],
+      positions.map((p) => [p.clientCode, nameOf.get(p.clientCode) ?? "", p.segment, p.label, p.buyQty, p.avgBuy.toFixed(4), p.sellQty, p.avgSell.toFixed(4), p.netQty, p.lastRate.toFixed(2), (p.realized + p.mtm).toFixed(2)])
     );
 
   return (
@@ -196,7 +196,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
               <tr>
                 <th>Client</th><th>Segment</th><th>Script</th><th className="num">Total Buy Qty</th><th className="num">Avg Buy Rate</th>
                 <th className="num">Total Sell Qty</th><th className="num">Avg Sell Rate</th><th className="num">Net Qty</th>
-                <th className="num">LTP</th><th className="num">Realized P&amp;L</th><th className="num">MTM</th>
+                <th className="num">LTP</th><th className="num">P&amp;L</th>
               </tr>
             </thead>
             <tbody>
@@ -211,18 +211,16 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
                   <td className="num">{p.sellQty ? fmt2(p.avgSell) : ""}</td>
                   <td className={`num ${p.netQty > 0 ? "b-txt" : p.netQty < 0 ? "s-txt" : ""}`}>{fmt0(p.netQty)}</td>
                   <td className="num" style={p.live ? undefined : { fontStyle: "italic", color: "#6b7686" }}>{fmt2(p.lastRate)}</td>
-                  <td className="num"><PnL value={p.realized} /></td>
-                  <td className="num"><PnL value={p.mtm} /></td>
+                  <td className="num"><PnL value={p.realized + p.mtm} /></td>
                 </tr>
               ))}
-              {positions.length === 0 && <tr><td colSpan={11} className="empty">No positions for the selected filter.</td></tr>}
+              {positions.length === 0 && <tr><td colSpan={10} className="empty">No positions for the selected filter.</td></tr>}
             </tbody>
             {positions.length > 0 && (
               <tfoot>
                 <tr>
                   <td colSpan={9}>Total (net of brokerage)</td>
-                  <td className="num"><PnL value={pt.realized} /></td>
-                  <td className="num"><PnL value={pt.mtm} /></td>
+                  <td className="num"><PnL value={pt.realized + pt.mtm} /></td>
                 </tr>
               </tfoot>
             )}
