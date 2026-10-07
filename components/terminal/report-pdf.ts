@@ -5,6 +5,8 @@ import { amt, BLUE, crDr, dmy, drawBand, drawFooters, generatedAt, GREEN, INK, l
 
 export interface ReportPdfInput {
   asOn: string; // YYYY-MM-DD
+  /** How open positions were valued, e.g. "MTM at NSE close 30-09-2026 (bhav)". */
+  priceNote: string;
   filters: { client: string; segment: string; script: string };
   nameOf: Map<string, string>;
   positions: Position[];
@@ -65,7 +67,7 @@ export async function buildReportPdf(input: ReportPdfInput) {
   const lastY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   // ---- Net Position -----------------------------------------------------------------------
-  section("Net Position", `—  ${input.positions.length} positions  ·  average rates include brokerage  ·  MTM at LTP when generated`);
+  section("Net Position", `—  ${input.positions.length} positions  ·  average rates include brokerage  ·  ${input.priceNote}`);
   autoTable(doc, {
     ...tableTheme,
     startY: y,

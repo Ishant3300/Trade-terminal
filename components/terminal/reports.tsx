@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { fetchSettlementPrices } from "@/app/actions";
 import {
   computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
 } from "@/lib/terminal/engine";
@@ -48,12 +49,42 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
         .map((p) => p.quoteKey),
     [positionTrades, ledgerTrades, calcs]
   );
-  const feed = useLiveQuotes(openKeys, 5000);
+  // As on today: live prices. As on a past date: NSE bhav close of that day
+  // (or the last trading day before it) — live prices would be wrong there.
+  const today = toDateStr(new Date());
+  const isPast = !!f.to && f.to < today;
+  const feed = useLiveQuotes(isPast ? [] : openKeys, 5000);
+  const equityScripts = useMemo(
+    () => [...new Set(openKeys.filter((k) => k.startsWith("NSEEQ|")).map((k) => k.slice(6)))].sort(),
+    [openKeys]
+  );
+  const closeKey = `${f.to}|${equityScripts.join(",")}`;
+  const [closes, setCloses] = useState<{ key: string; priceDate: string | null; prices: Record<string, number>; message?: string } | null>(null);
+  useEffect(() => {
+    if (!isPast || !equityScripts.length) return;
+    let cancelled = false;
+    fetchSettlementPrices(f.to, equityScripts)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.ok) return setCloses({ key: closeKey, priceDate: null, prices: {}, message: res.error });
+        const prices = Object.fromEntries(Object.entries(res.data.prices).map(([s, p]) => [s, p.price]));
+        setCloses({ key: closeKey, priceDate: res.data.priceDate, prices, message: res.data.message });
+      })
+      .catch(() => !cancelled && setCloses({ key: closeKey, priceDate: null, prices: {}, message: "Could not load closing prices" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isPast, closeKey, f.to, equityScripts]);
+  const closesReady = !isPast || !equityScripts.length || closes?.key === closeKey;
   const livePrices = useMemo(() => {
     const out: Record<string, number> = {};
+    if (isPast) {
+      if (closes?.key === closeKey) for (const [s, p] of Object.entries(closes.prices)) out[`NSEEQ|${s}`] = p;
+      return out;
+    }
     for (const [k, q] of Object.entries(feed.quotes)) if (q && q.ltp > 0) out[k] = q.ltp;
     return out;
-  }, [feed.quotes]);
+  }, [isPast, closes, closeKey, feed.quotes]);
 
   const positions = useMemo(() => computePositions(positionTrades, calcs, livePrices), [positionTrades, calcs, livePrices]);
   // Interest accrues up to the To date (or today, if To is in the future).
@@ -94,6 +125,9 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
     try {
       await downloadReportPdf({
         asOn: f.to,
+        priceNote: isPast
+          ? `MTM at NSE close ${closes?.priceDate ? fmtDate(closes.priceDate) : fmtDate(f.to)} (bhav)`
+          : "MTM at live price when generated",
         filters: { client: f.client, segment: f.segment, script: f.script.trim().toUpperCase() },
         nameOf, positions, positionTotals: pt, ledger, ledgerTotals: lt,
       });
@@ -133,12 +167,16 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
             <input type="date" className="tt-input" value={draft.to} onChange={(e) => set("to", e.target.value)} />
           </Field>
           <button type="submit" className="tt-btn tt-btn-blue">View</button>
-          <button type="button" className="tt-btn tt-btn-blue" onClick={downloadPdf} disabled={pdfBusy || (!positions.length && !ledger.length)}>
+          <button type="button" className="tt-btn tt-btn-blue" onClick={downloadPdf} disabled={pdfBusy || !closesReady || (!positions.length && !ledger.length)}>
             {pdfBusy ? "Preparing…" : "Download PDF"}
           </button>
           <button type="button" className="tt-btn tt-btn-save" onClick={exportPositions} disabled={!positions.length}>Export to Excel</button>
           <span className="tt-muted" style={{ marginLeft: "auto" }}>
-            {feed.status === "live"
+            {isPast
+              ? !closesReady
+                ? "Loading NSE closing prices…"
+                : <>MTM at <b className="pos">NSE close {closes?.priceDate ? fmtDate(closes.priceDate) : ""}</b> (bhav); <i>italic</i> = no close price, last traded rate{closes?.message ? ` · ${closes.message}` : ""}</>
+              : feed.status === "live"
               ? <>MTM at <b className="pos">live price</b> (Angel One); <i>italic</i> = no live price, last traded rate</>
               : feed.status === "not-configured"
                 ? "Live feed not configured — MTM at last traded rate"
