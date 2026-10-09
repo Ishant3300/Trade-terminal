@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { angelTradeBook, getQuotes, streamSetup, type AngelFill, type FeedStatus, type Quote, type StreamSetup } from "@/lib/angel";
+import { getQuotes, streamSetup, type FeedStatus, type Quote, type StreamSetup } from "@/lib/angel";
 import { checkCredentials, createSessionToken, SESSION_COOKIE, SESSION_HOURS, verifySessionToken } from "@/lib/auth";
 import { settlementPrices, type SettlementPrices } from "@/lib/bhav";
 import { requestIp } from "@/lib/request-ip";
@@ -13,9 +13,7 @@ import {
   ledgerEntryFromRow, ledgerEntryToRow, settlementFromRow,
   type LedgerEntryInput, type LedgerEntryRow, type SettlementRow,
 } from "@/lib/terminal/db";
-import { findInstrument, lotFromQty, valanFor } from "@/lib/terminal/engine";
-import { INSTRUMENTS } from "@/lib/terminal/seed";
-import type { Account, LedgerEntry, OptionType, Segment, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
+import type { Account, LedgerEntry, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
 
 export type Result<T = null> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -280,95 +278,4 @@ export async function deleteSettlement(id: number): Promise<Result> {
   if (!(await sessionUser())) return NOT_LOGGED_IN;
   const { error } = await db().from("settlements").delete().eq("id", id);
   return error ? { ok: false, error: setupError(error) } : { ok: true, data: null };
-}
-
-// ---------------------------------------------------------------------------
-// Import from Angel One (today's trade book)
-// ---------------------------------------------------------------------------
-
-export interface AngelTradeRow extends AngelFill {
-  segment: Segment | null;
-  script: string;
-  option: OptionType;
-  strike: number;
-  lotSize: number;
-  /** Already imported as this trade id. */
-  importedAs: number | null;
-  /** Why it cannot be imported (unknown contract, MCX/NCDEX …). */
-  problem: string | null;
-}
-
-const istToday = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
-
-/** Angel contract key → trade fields. NSE only: MCX/NCDEX quantity units differ from this app's. */
-function contractOf(fill: AngelFill): Pick<AngelTradeRow, "segment" | "script" | "option" | "strike" | "lotSize" | "problem"> {
-  const none = { segment: null, script: fill.symbol, option: "" as OptionType, strike: 0, lotSize: 0 };
-  if (!fill.key) return { ...none, problem: "Contract not found in the script list" };
-  const [seg, name, strike, opt] = fill.key.split("|");
-  if (seg !== "NSEEQ" && seg !== "NSEFUT" && seg !== "NSEOPT") return { ...none, problem: `${seg} import not supported — enter in Trade Entry` };
-  const inst = findInstrument(INSTRUMENTS, seg, name);
-  if (!inst) return { ...none, problem: "Contract not found in the script list" };
-  return {
-    segment: seg, script: inst.name, option: (seg === "NSEOPT" ? opt : "") as OptionType, strike: seg === "NSEOPT" ? Number(strike) : 0,
-    lotSize: inst.lotSize, problem: !(fill.qty > 0) || !(fill.price > 0) ? "No quantity / price" : null,
-  };
-}
-
-async function angelRows(): Promise<{ date: string; rows: AngelTradeRow[] }> {
-  const fills = await angelTradeBook();
-  const ids = fills.map((f) => f.id);
-  const imported = new Map<string, number>();
-  if (ids.length) {
-    const { data, error } = await db().from("trades").select("id, ext_id").in("ext_id", ids);
-    if (error) throw new Error(/ext_id/.test(error.message) ? "Angel import needs the database update — run supabase/schema.sql" : error.message);
-    for (const r of data as { id: number; ext_id: string }[]) imported.set(r.ext_id, r.id);
-  }
-  return { date: istToday(), rows: fills.map((f) => ({ ...f, ...contractOf(f), importedAs: imported.get(f.id) ?? null })) };
-}
-
-export async function angelTrades(): Promise<Result<{ date: string; rows: AngelTradeRow[] }>> {
-  if (!(await sessionUser())) return NOT_LOGGED_IN;
-  try {
-    return { ok: true, data: await angelRows() };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-/**
- * Imports the chosen fills for the given clients. Quantity, price and contract are
- * read again from Angel One here — never taken from the browser.
- */
-export async function importAngelTrades(items: { id: string; clientCode: string }[]): Promise<Result<{ imported: number }>> {
-  const user = await sessionUser();
-  if (!user) return NOT_LOGGED_IN;
-  try {
-    const { date, rows } = await angelRows();
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const { data: accounts } = await db().from("accounts").select("code");
-    const codes = new Set((accounts ?? []).map((a: { code: string }) => a.code));
-    const ip = await requestIp();
-    const insert = [];
-    for (const item of items) {
-      const r = byId.get(item.id);
-      const client = item.clientCode.trim().toUpperCase();
-      if (!r) return { ok: false, error: `Trade ${item.id} is no longer in the Angel One trade book` };
-      if (r.importedAs != null) continue;
-      if (r.problem || !r.segment) return { ok: false, error: `${r.symbol}: ${r.problem}` };
-      if (!codes.has(client)) return { ok: false, error: `${r.symbol} ${r.time}: unknown client code "${item.clientCode}"` };
-      insert.push({
-        ...tradeToRow({
-          ot: "O", date, valan: valanFor(date), segment: r.segment, script: r.script, option: r.option, strike: r.strike,
-          tradeType: "NRM", side: r.side, lot: lotFromQty(r.qty, r.lotSize), qty: r.qty, rate: r.price, clientCode: client,
-        }),
-        ext_id: r.id, user_name: user, ip, add_time: `${date}T${r.time}+05:30`,
-      });
-    }
-    if (!insert.length) return { ok: true, data: { imported: 0 } };
-    const { error } = await db().from("trades").insert(insert);
-    if (error) return { ok: false, error: friendly(error) };
-    return { ok: true, data: { imported: insert.length } };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
 }
