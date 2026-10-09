@@ -143,7 +143,7 @@ export async function buildLedgerPdf(input: LedgerPdfInput) {
       if (r.kind === "BF") {
         data.cell.styles.fillColor = [238, 243, 249];
         if (data.column.index === 1) data.cell.styles.fontStyle = "bold";
-      } else if (r.kind === "PNL" || r.kind === "MTM") {
+      } else if (r.kind === "PNL" || r.kind === "MTM" || r.kind === "REVALUE") {
         data.cell.styles.fillColor = [232, 241, 252];
       } else if (r.kind === "INTEREST") {
         data.cell.styles.fillColor = [253, 236, 234];

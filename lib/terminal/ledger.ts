@@ -3,9 +3,10 @@ import type { Account, LedgerEntry, Settlement, Trade } from "./types";
 
 // Client money ledger with interest on the funded amount (NSE equity only).
 //
-//   Margin used   = cost (net buy rate × qty, brokerage included) of open
-//                   delivery lots; a lot counts from its buy day through its
-//                   sell day. Same-day (intraday) trades and Full Payment buys
+//   Margin used   = value of open delivery lots: cost (net buy rate × qty,
+//                   brokerage included), or the settlement price once the lot
+//                   has been carried through a settlement; a lot counts from
+//                   its buy day through its sell day. Same-day (intraday) trades and Full Payment buys
 //                   use no margin.
 //   Client money  = opening balance + deposits − withdrawals ± journals
 //                   + P&L and MTM posted at monthly settlements
@@ -18,8 +19,9 @@ import type { Account, LedgerEntry, Settlement, Trade } from "./types";
 // Settlement (on the 1st): open lots are valued at the bhav close of the
 // price date and that MTM is posted; P&L of lots sold during the month is
 // posted (from bhav if the lot was carried through an earlier settlement);
-// the month's interest is posted. Positions keep their original cost in
-// margin used.
+// the month's interest is posted. From the next day (the 1st) lots still held
+// reopen at the settlement price: margin used is revalued to qty × bhav, so the
+// MTM just posted to client money is not counted again in the funded amount.
 
 export interface Portion {
   script: string;
@@ -106,7 +108,7 @@ export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) 
   return { portions, intraday, warnings };
 }
 
-export type RowKind = "BF" | "BUY" | "RELEASE" | "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR" | "PNL" | "MTM" | "INTEREST";
+export type RowKind = "BF" | "REVALUE" | "BUY" | "RELEASE" | "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR" | "PNL" | "MTM" | "INTEREST";
 
 export interface StatementRow {
   date: string; // date the change takes effect
@@ -204,12 +206,21 @@ export function computeClientLedger(
   // --- Effective-dated changes (settlement rows are added during the walk).
   type Change = { date: string; kind: RowKind; particulars: string; money: number; margin: number };
   const changes: Change[] = [];
+  const revalue = new Map<number, number>(); // settlement index → margin change on its 1st
   for (const p of portions) {
     if (p.fullPayment) continue;
-    const amount = p.netBuyRate * p.qty;
+    let amount = p.netBuyRate * p.qty;
     changes.push({
       date: p.buyDate, kind: "BUY", money: 0, margin: amount,
       particulars: `BUY ${fmtQty(p.qty)} ${p.script} @ ${fmtRate(p.netBuyRate)} (net)`,
+    });
+    // Still held on a settlement's 1st: reopens at that settlement's price.
+    settlements.forEach((s, i) => {
+      const price = s.prices[p.script];
+      const held = p.buyDate <= s.priceDate && (p.closeDate === null || p.closeDate >= s.settleDate);
+      if (!held || !(price > 0) || s.settleDate > asOf) return;
+      add(revalue, i, price * p.qty - amount);
+      amount = price * p.qty;
     });
     if (p.closeDate !== null && addDays(p.closeDate, 1) <= asOf) {
       changes.push({
@@ -218,6 +229,14 @@ export function computeClientLedger(
       });
     }
   }
+  revalue.forEach((delta, i) => {
+    const s = settlements[i];
+    if (Math.abs(delta) < 0.005) return;
+    changes.push({
+      date: s.settleDate, kind: "REVALUE", money: 0, margin: delta,
+      particulars: `Open positions reopened at settlement price (bhav ${dmy(s.priceDate)})`,
+    });
+  });
   const ENTRY_LABEL: Record<LedgerEntry["kind"], string> = {
     DEPOSIT: "Deposit", WITHDRAWAL: "Withdrawal / Payout", JOURNAL_CR: "Journal Cr", JOURNAL_DR: "Journal Dr",
   };
@@ -228,7 +247,7 @@ export function computeClientLedger(
       particulars: `${ENTRY_LABEL[e.kind]}${e.narration ? ` — ${e.narration}` : ""}`,
     });
   }
-  const order: RowKind[] = ["PNL", "MTM", "INTEREST", "DEPOSIT", "JOURNAL_CR", "WITHDRAWAL", "JOURNAL_DR", "BUY", "RELEASE"];
+  const order: RowKind[] = ["PNL", "MTM", "INTEREST", "REVALUE", "DEPOSIT", "JOURNAL_CR", "WITHDRAWAL", "JOURNAL_DR", "BUY", "RELEASE"];
   changes.sort((a, b) => a.date.localeCompare(b.date) || order.indexOf(a.kind) - order.indexOf(b.kind));
 
   const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;

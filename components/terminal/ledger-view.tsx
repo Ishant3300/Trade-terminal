@@ -204,7 +204,7 @@ export function LedgerView({ data, calcs, actions }: { data: TerminalData; calcs
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className={r.kind === "INTEREST" ? "sell" : r.kind === "PNL" || r.kind === "MTM" || r.kind === "BF" ? "editing-soft" : ""}>
+                <tr key={i} className={r.kind === "INTEREST" ? "sell" : r.kind === "PNL" || r.kind === "MTM" || r.kind === "REVALUE" || r.kind === "BF" ? "editing-soft" : ""}>
                   <td>{fmtDate(r.date)}</td>
                   <td style={{ whiteSpace: "normal", fontWeight: r.kind === "BF" ? 600 : undefined }}>{r.particulars}</td>
                   <td className="num">{r.debit ? fmt2(r.debit) : ""}</td>
