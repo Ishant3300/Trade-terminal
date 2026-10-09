@@ -7,6 +7,7 @@ import {
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import { DERIVATIVE_SEGMENTS, PART_LOT_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
+import { AngelImport } from "./angel-import";
 import { useLiveQuotes } from "./quotes";
 import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
@@ -518,6 +519,8 @@ export function TradeEntry({
           </table>
         </div>
       </div>
+
+      <AngelImport data={data} actions={actions} />
     </div>
   );
 }

@@ -412,3 +412,94 @@ export async function dailyCloses(symbols: string[], date: string): Promise<Reco
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Trade book (executed trades of the Angel One account — today only)
+// ---------------------------------------------------------------------------
+
+async function get<T>(path: string, jwt: string): Promise<T> {
+  const res = await fetch(ROOT + path, { headers: headers(jwt), cache: "no-store" });
+  const text = await res.text();
+  let json: AngelResponse<T> | undefined;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // plain-text gateway errors
+  }
+  if (!res.ok || !(json?.status ?? json?.success)) {
+    const msg = json?.message || describeNonJson(text) || `HTTP ${res.status}`;
+    throw new AngelError(msg, json?.errorcode || json?.errorCode || "", res.status);
+  }
+  return json.data;
+}
+
+export interface AngelFill {
+  /** "ANGEL:<order id>:<fill id>" — unique per execution. */
+  id: string;
+  time: string; // HH:MM:SS (IST)
+  exchange: string;
+  symbol: string; // Angel trading symbol
+  side: "B" | "S";
+  qty: number;
+  price: number;
+  product: string;
+  /** Contract key as in quoteKey() (NSEEQ|RELIANCE, NSEFUT|NIFTY 27OCT2026 …), null if unknown. */
+  key: string | null;
+}
+
+let byToken: Map<string, string> | null = null;
+const keyForToken = (exchange: string, token: string) => {
+  byToken ??= new Map(Object.entries(TOKEN_MAP).map(([key, tok]) => [tok, key]));
+  return byToken.get(`${exchange}:${token}`) ?? null;
+};
+
+interface RawFill {
+  orderid: string;
+  fillid: string;
+  filltime: string;
+  exchange: string;
+  tradingsymbol: string;
+  transactiontype: string;
+  fillsize: string | number;
+  fillprice: string | number;
+  producttype: string;
+}
+
+/** Today's executed trades on the Angel One account, oldest first. */
+export async function angelTradeBook(): Promise<AngelFill[]> {
+  if (!feedConfigured()) throw new Error("Angel One not configured");
+  const load = async (jwt: string) => {
+    const [fills, orders] = await Promise.all([
+      get<RawFill[] | null>("/rest/secure/angelbroking/order/v1/getTradeBook", jwt),
+      get<{ orderid: string; exchange: string; symboltoken: string }[] | null>("/rest/secure/angelbroking/order/v1/getOrderBook", jwt),
+    ]);
+    return { fills: fills ?? [], orders: orders ?? [] };
+  };
+  let data;
+  try {
+    data = await load((await getSession()).jwt);
+  } catch (e) {
+    if (!isAuthError(e)) throw e;
+    data = await load((await getSession(true)).jwt);
+  }
+  const tokenOf = new Map(data.orders.map((o) => [o.orderid, o]));
+  return data.fills
+    .map((f): AngelFill => {
+      const order = tokenOf.get(f.orderid);
+      let key = order ? keyForToken(order.exchange, order.symboltoken) : null;
+      const eq = /^(.+)-(EQ|BE|SM|ST)$/.exec(f.tradingsymbol);
+      if (!key && f.exchange === "NSE" && eq && TOKEN_MAP[`NSEEQ|${eq[1]}`]) key = `NSEEQ|${eq[1]}`;
+      return {
+        id: `ANGEL:${f.orderid}:${f.fillid}`,
+        time: f.filltime,
+        exchange: f.exchange,
+        symbol: f.tradingsymbol,
+        side: /^s/i.test(f.transactiontype) ? "S" : "B",
+        qty: Number(f.fillsize),
+        price: Number(f.fillprice),
+        product: f.producttype,
+        key,
+      };
+    })
+    .sort((a, b) => a.time.localeCompare(b.time));
+}

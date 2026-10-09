@@ -36,6 +36,7 @@ export interface TerminalActions {
   deleteLedgerEntry(id: number): Promise<Result<unknown>>;
   saveSettlement(input: server.SettlementInput): Promise<Result<unknown>>;
   deleteSettlement(id: number): Promise<Result<unknown>>;
+  importAngelTrades(items: { id: string; clientCode: string }[]): Promise<Result<unknown>>;
 }
 
 /**
@@ -92,6 +93,7 @@ export function useTerminalStore() {
       deleteLedgerEntry: (id) => safe(server.deleteLedgerEntry(id)).then(after),
       saveSettlement: (x) => safe(server.saveSettlement(x)).then(after),
       deleteSettlement: (id) => safe(server.deleteSettlement(id)).then(after),
+      importAngelTrades: (items) => safe(server.importAngelTrades(items)).then(after),
     };
   }, [reload]);
 
