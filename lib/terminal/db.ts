@@ -1,4 +1,3 @@
-import { toDateStr, toTimeStr } from "./engine";
 import type { Account, LedgerEntry, Settlement, Slab, Trade } from "./types";
 
 // Row shapes of the Supabase tables (see supabase/schema.sql) and mappers to
@@ -121,9 +120,11 @@ export const slabToRow = (s: SlabInput): Omit<SlabRow, "id"> => ({
   min_pct_on_del: s.minPctOnDel,
 });
 
-/** add_time is shown in the viewer's local time as "YYYY-MM-DD HH:MM:SS". */
+/** Timestamp in Indian time (IST, UTC+5:30) as "YYYY-MM-DD HH:MM:SS", whatever the server's time zone. */
+const istStamp = (iso: string) => new Date(new Date(iso).getTime() + 5.5 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
+
+/** add_time is shown in Indian time. */
 export const tradeFromRow = (r: TradeRow): Trade => {
-  const at = new Date(r.add_time);
   return {
     id: r.id,
     ot: r.ot,
@@ -142,7 +143,7 @@ export const tradeFromRow = (r: TradeRow): Trade => {
     fullPayment: !!r.full_payment,
     user: r.user_name,
     ip: r.ip,
-    addTime: `${toDateStr(at)} ${toTimeStr(at)}`,
+    addTime: istStamp(r.add_time),
   };
 };
 
