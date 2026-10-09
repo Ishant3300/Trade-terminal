@@ -1,18 +1,31 @@
-import type { LedgerRow, Position } from "@/lib/terminal/engine";
+import type { Position } from "@/lib/terminal/engine";
+import type { Account } from "@/lib/terminal/types";
 import { amt, BLUE, crDr, dmy, drawBand, drawFooters, generatedAt, GREEN, INK, loadPdf, MARGIN, MUTED, qty, RED, tableTheme, type RGB } from "./pdf-kit";
 
 // Premium A4-landscape PDF of the Reports page: Net Position + Client Ledger.
+
+/** Client Ledger row of the Reports page (amounts signed: Cr positive). */
+export interface ReportLedgerRow {
+  account: Account;
+  bf: number; // client money after the last settlement (opening balance if none)
+  deposits: number; // since then
+  pnl: number; // since then, net of brokerage, open positions included
+  interest: number; // since then
+  equity: number;
+}
 
 export interface ReportPdfInput {
   asOn: string; // YYYY-MM-DD
   /** How open positions were valued, e.g. "MTM at NSE close 30-09-2026 (bhav)". */
   priceNote: string;
+  /** e.g. "NSE equity from settlement 30-09-2026, carried at settle price" ("" if none). */
+  sinceNote: string;
   filters: { client: string; segment: string; script: string };
   nameOf: Map<string, string>;
   positions: Position[];
   positionTotals: { realized: number; mtm: number };
-  ledger: LedgerRow[];
-  ledgerTotals: { opening: number; dep: number; gross: number; brk: number; int: number; bal: number; unr: number; eq: number };
+  ledger: ReportLedgerRow[];
+  ledgerTotals: { bf: number; dep: number; pnl: number; int: number; eq: number };
 }
 
 const pnlColor = (n: number): RGB => (n > 0.004 ? GREEN : n < -0.004 ? RED : INK);
@@ -67,7 +80,7 @@ export async function buildReportPdf(input: ReportPdfInput) {
   const lastY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   // ---- Net Position -----------------------------------------------------------------------
-  section("Net Position", `—  ${input.positions.length} positions  ·  average rates include brokerage  ·  ${input.priceNote}`);
+  section("Net Position", `—  ${input.positions.length} positions  ·  average rates include brokerage  ·  ${input.priceNote}${input.sinceNote ? `  ·  ${input.sinceNote}` : ""}`);
   autoTable(doc, {
     ...tableTheme,
     startY: y,
@@ -113,25 +126,25 @@ export async function buildReportPdf(input: ReportPdfInput) {
     doc.addPage();
     y = 18;
   }
-  section("Client Ledger", "—  Net Equity = Opening (+Cr / -Dr) + Deposits (net) + P&L - Interest  ·  P&L includes open positions, net of brokerage");
+  section("Client Ledger", `—  Net Equity = Balance B/F (+Cr / -Dr) + Deposits (net) + P&L - Interest  ·  ${input.sinceNote ? "B/F = client money after the last settlement" : "B/F = opening balance"}  ·  P&L net of brokerage`);
   const t = input.ledgerTotals;
   autoTable(doc, {
     ...tableTheme,
     startY: y,
     margin: { left: M, right: M, top: 16, bottom: 16 },
-    head: [["Code", "Account Name", "Type", "Opening", "Deposits (net)", "P&L", "Interest", "Net Equity", "Int. %"]],
+    head: [["Code", "Account Name", "Type", "Balance B/F", "Deposits (net)", "P&L", "Interest", "Net Equity", "Int. %"]],
     body: input.ledger.map((r) => [
       r.account.code,
       r.account.name,
       r.account.type,
-      crDr(r.opening),
+      crDr(r.bf),
       amt(r.deposits),
-      amt(r.grossRealized + r.unrealized - r.brokerage),
+      amt(r.pnl),
       amt(r.interest),
       crDr(r.equity),
       r.account.interestPct ? r.account.interestPct.toFixed(2) : "",
     ]),
-    foot: [[{ content: "Total", colSpan: 3 }, crDr(t.opening), amt(t.dep), amt(t.gross + t.unr - t.brk), amt(t.int), crDr(t.eq), ""]],
+    foot: [[{ content: "Total", colSpan: 3 }, crDr(t.bf), amt(t.dep), amt(t.pnl), amt(t.int), crDr(t.eq), ""]],
     showHead: "everyPage",
     showFoot: "lastPage",
     columnStyles: {
@@ -142,8 +155,8 @@ export async function buildReportPdf(input: ReportPdfInput) {
     didParseCell: (d) => {
       if ((d.section === "head" && d.column.index >= 3) || (d.section === "foot" && d.column.index >= 3)) d.cell.styles.halign = "right";
       const r = d.section === "body" ? input.ledger[d.row.index] : null;
-      const opening = r ? r.opening : t.opening;
-      const pnl = r ? r.grossRealized + r.unrealized - r.brokerage : t.gross + t.unr - t.brk;
+      const opening = r ? r.bf : t.bf;
+      const pnl = r ? r.pnl : t.pnl;
       const equity = r ? r.equity : t.eq;
       if (d.section === "head") return;
       if (d.column.index === 3 && opening < -0.004) d.cell.styles.textColor = RED;

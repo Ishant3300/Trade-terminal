@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchSettlementPrices } from "@/app/actions";
 import {
-  computeLedger, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
+  addDays, computePositions, contractLabel, drCr, fmt0, fmt2, fmtDate, toDateStr, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { SEGMENTS, type TerminalData } from "@/lib/terminal/types";
-import { computeClientLedger } from "@/lib/terminal/ledger";
+import { carryToSettlement, computeClientLedger } from "@/lib/terminal/ledger";
 import { useLiveQuotes } from "./quotes";
-import { downloadReportPdf } from "./report-pdf";
+import { downloadReportPdf, type ReportLedgerRow } from "./report-pdf";
 import { downloadCsv, Field, PnL } from "./ui";
 
 interface Filters {
@@ -29,25 +29,32 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
   const set = (k: keyof Filters, v: string) => setDraft((d) => ({ ...d, [k]: v }));
   const nameOf = useMemo(() => new Map(data.accounts.map((a) => [a.code, a.name])), [data.accounts]);
 
+  // Interest accrues up to the As on date (or today, if As on is in the future).
+  const interestAsOf = f.to && f.to < toDateStr(new Date()) ? f.to : toDateStr(new Date());
+  // NSE equity already settled is carried at the settlement price: P&L runs from the last settlement.
+  const carried = useMemo(
+    () => carryToSettlement(data.trades.filter((t) => !f.to || t.date <= f.to), calcs, data.settlements, interestAsOf),
+    [data.trades, calcs, data.settlements, f.to, interestAsOf]
+  );
+  const since = carried.since;
   const positionTrades = useMemo(() => {
     const q = f.script.trim().toUpperCase();
-    return data.trades.filter((t) =>
+    return carried.trades.filter((t) =>
       (!f.segment || t.segment === f.segment) &&
       (!q || contractLabel(t).includes(q)) &&
-      (!f.client || t.clientCode === f.client) &&
-      (!f.to || t.date <= f.to)
+      (!f.client || t.clientCode === f.client)
     );
-  }, [data.trades, f]);
-  // Ledger balances run over every trade up to the To date, across all segments.
-  const ledgerTrades = useMemo(() => data.trades.filter((t) => !f.to || t.date <= f.to), [data.trades, f.to]);
+  }, [carried.trades, f]);
+  // Client Ledger runs over every segment.
+  const ledgerTrades = carried.trades;
 
   // Live prices only for contracts with an open position.
   const openKeys = useMemo(
     () =>
-      [...computePositions(positionTrades, calcs), ...computePositions(ledgerTrades, calcs)]
+      [...computePositions(positionTrades, carried.calcs), ...computePositions(ledgerTrades, carried.calcs)]
         .filter((p) => p.netQty !== 0)
         .map((p) => p.quoteKey),
-    [positionTrades, ledgerTrades, calcs]
+    [positionTrades, ledgerTrades, carried.calcs]
   );
   // As on today: live prices. As on a past date: NSE bhav close of that day
   // (or the last trading day before it) — live prices would be wrong there.
@@ -86,38 +93,39 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
     return out;
   }, [isPast, closes, closeKey, feed.quotes]);
 
-  const positions = useMemo(() => computePositions(positionTrades, calcs, livePrices), [positionTrades, calcs, livePrices]);
-  // Interest accrues up to the To date (or today, if To is in the future).
-  const interestAsOf = f.to && f.to < toDateStr(new Date()) ? f.to : toDateStr(new Date());
-  // Interest (posted + accrued) from the client money ledger — same figures as the Ledger tab.
-  const interest = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of data.accounts) {
-      if (f.client && a.code !== f.client) continue;
-      const L = computeClientLedger(a, data.trades, calcs, data.entries, data.settlements, interestAsOf);
-      m.set(a.code, L.postedInterest + L.accruedInterest);
-    }
-    return m;
-  }, [data.accounts, data.trades, data.entries, data.settlements, calcs, interestAsOf, f.client]);
-  const deposits = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const e of data.entries) {
-      if (e.date > interestAsOf) continue;
-      const signed = e.kind === "DEPOSIT" || e.kind === "JOURNAL_CR" ? e.amount : -e.amount;
-      m.set(e.clientCode, (m.get(e.clientCode) ?? 0) + signed);
-    }
-    return m;
-  }, [data.entries, interestAsOf]);
-  const ledger = useMemo(() => {
-    const accounts = data.accounts.filter((a) => !f.client || a.code === f.client);
-    return computeLedger(accounts, computePositions(ledgerTrades, calcs, livePrices), interest, deposits);
-  }, [data.accounts, ledgerTrades, calcs, livePrices, interest, deposits, f.client]);
+  const positions = useMemo(() => computePositions(positionTrades, carried.calcs, livePrices), [positionTrades, carried.calcs, livePrices]);
+
+  // Client Ledger: client money after the last settlement (as in the Ledger tab) + what has
+  // happened since — deposits, P&L (net of brokerage), interest accrued.
+  const ledger = useMemo((): ReportLedgerRow[] => {
+    const from = since?.settleDate ?? "";
+    const all = computePositions(ledgerTrades, carried.calcs, livePrices);
+    return data.accounts
+      .filter((a) => !f.client || a.code === f.client)
+      .map((account) => {
+        const L = computeClientLedger(account, data.trades, calcs, data.entries, data.settlements, interestAsOf);
+        const deposits = data.entries
+          .filter((e) => e.clientCode === account.code && e.date >= from && e.date <= interestAsOf)
+          .reduce((s, e) => s + (e.kind === "DEPOSIT" || e.kind === "JOURNAL_CR" ? e.amount : -e.amount), 0);
+        let bf = L.money - deposits;
+        let interest = L.accruedInterest;
+        // Month-end As on: that month's bill is shown as P&L and interest, not yet in B/F.
+        const billed = L.settlements.find((s) => s.periodTo === interestAsOf);
+        if (billed) {
+          bf -= billed.realized + billed.mtm - billed.interest;
+          interest += billed.interest;
+        }
+        const pnl = all.filter((p) => p.clientCode === account.code).reduce((s, p) => s + p.realized + p.mtm, 0);
+        return { account, bf, deposits, pnl, interest, equity: bf + deposits + pnl - interest };
+      });
+  }, [data.accounts, data.trades, data.entries, data.settlements, calcs, ledgerTrades, carried.calcs, livePrices, since, interestAsOf, f.client]);
 
   const pt = positions.reduce((s, p) => ({ realized: s.realized + p.realized, mtm: s.mtm + p.mtm }), { realized: 0, mtm: 0 });
   const lt = ledger.reduce(
-    (s, r) => ({ opening: s.opening + r.opening, dep: s.dep + r.deposits, gross: s.gross + r.grossRealized, brk: s.brk + r.brokerage, int: s.int + r.interest, bal: s.bal + r.balance, unr: s.unr + r.unrealized, eq: s.eq + r.equity }),
-    { opening: 0, dep: 0, gross: 0, brk: 0, int: 0, bal: 0, unr: 0, eq: 0 }
+    (s, r) => ({ bf: s.bf + r.bf, dep: s.dep + r.deposits, pnl: s.pnl + r.pnl, int: s.int + r.interest, eq: s.eq + r.equity }),
+    { bf: 0, dep: 0, pnl: 0, int: 0, eq: 0 }
   );
+  const sinceNote = since ? `NSE equity from settlement ${fmtDate(addDays(since.settleDate, -1))}, carried at settle price` : "";
 
   const [pdfBusy, setPdfBusy] = useState(false);
   const downloadPdf = async () => {
@@ -129,7 +137,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
           ? `MTM at NSE close ${closes?.priceDate ? fmtDate(closes.priceDate) : fmtDate(f.to)} (bhav)`
           : "MTM at live price when generated",
         filters: { client: f.client, segment: f.segment, script: f.script.trim().toUpperCase() },
-        nameOf, positions, positionTotals: pt, ledger, ledgerTotals: lt,
+        sinceNote, nameOf, positions, positionTotals: pt, ledger, ledgerTotals: lt,
       });
     } finally {
       setPdfBusy(false);
@@ -187,7 +195,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Net Position <span className="tt-muted">— all trades up to {fmtDate(f.to)}</span>
+          Net Position <span className="tt-muted">— all trades up to {fmtDate(f.to)}{sinceNote && ` · ${sinceNote}`}</span>
           <span className="tt-badge" style={{ marginLeft: "auto" }}>Count: {positions.length}</span>
         </div>
         <div className="tt-grid-wrap" style={{ maxHeight: "46vh" }}>
@@ -230,13 +238,13 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Opening (+Cr / −Dr) + Deposits (net) + P&amp;L − Interest · P&amp;L includes open positions, net of brokerage · interest per Ledger tab</span>
+          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Balance B/F (+Cr / −Dr) + Deposits (net) + P&amp;L − Interest · {since ? <>B/F = client money after settlement {fmtDate(addDays(since.settleDate, -1))}; deposits, P&amp;L and interest since then</> : "B/F = opening balance"} · P&amp;L includes open positions, net of brokerage</span>
         </div>
         <div className="tt-grid-wrap">
           <table className="tt-grid">
             <thead>
               <tr>
-                <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Opening</th><th className="num">Deposits (net)</th><th className="num">P&amp;L</th>
+                <th>Code</th><th>Account Name</th><th>Type</th><th className="num">Balance B/F</th><th className="num">Deposits (net)</th><th className="num">P&amp;L</th>
                 <th className="num">Interest</th>
                 <th className="num">Net Equity</th><th className="num">Int. %</th>
               </tr>
@@ -247,9 +255,9 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
                   <td style={{ fontWeight: 600 }}>{r.account.code}</td>
                   <td>{r.account.name}</td>
                   <td>{r.account.type}</td>
-                  <td className={`num ${r.opening < 0 ? "neg" : ""}`}>{drCr(r.opening)}</td>
+                  <td className={`num ${r.bf < 0 ? "neg" : ""}`}>{drCr(r.bf)}</td>
                   <td className="num">{fmt2(r.deposits)}</td>
-                  <td className="num"><PnL value={r.grossRealized + r.unrealized - r.brokerage} /></td>
+                  <td className="num"><PnL value={r.pnl} /></td>
                   <td className="num">{fmt2(r.interest)}</td>
                   <td className={`num ${r.equity < 0 ? "neg" : "pos"}`} style={{ fontWeight: 700 }}>{drCr(r.equity)}</td>
                   <td className="num">{r.account.interestPct ? r.account.interestPct.toFixed(2) : ""}</td>
@@ -259,9 +267,9 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
             <tfoot>
               <tr>
                 <td colSpan={3}>Total</td>
-                <td className="num">{drCr(lt.opening)}</td>
+                <td className="num">{drCr(lt.bf)}</td>
                 <td className="num">{fmt2(lt.dep)}</td>
-                <td className="num"><PnL value={lt.gross + lt.unr - lt.brk} /></td>
+                <td className="num"><PnL value={lt.pnl} /></td>
                 <td className="num">{fmt2(lt.int)}</td>
                 <td className="num">{drCr(lt.eq)}</td>
                 <td></td>

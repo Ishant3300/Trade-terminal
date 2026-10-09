@@ -3,7 +3,6 @@ import { FO_LOTS } from "./fo-master";
 import {
   DERIVATIVE_SEGMENTS,
   PART_LOT_SEGMENTS,
-  type Account,
   type Instrument,
   type Segment,
   type Slab,
@@ -392,41 +391,6 @@ export function daysInclusive(from: string, to: string): number {
   const [y1, m1, d1] = from.split("-").map(Number);
   const [y2, m2, d2] = to.split("-").map(Number);
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000) + 1;
-}
-
-export interface LedgerRow {
-  account: Account;
-  opening: number; // signed: Cr positive, Dr negative
-  deposits: number; // net of manual entries: deposits + journal Cr − withdrawals − journal Dr
-  grossRealized: number;
-  brokerage: number;
-  interest: number;
-  balance: number;
-  unrealized: number;
-  equity: number;
-}
-
-/**
- * Current Balance = Opening (+Cr / −Dr) + Deposits (net) + Realized P&L − Brokerage − Interest.
- * `interest` and `deposits` are per client code (interest from the ledger engine).
- */
-export function computeLedger(
-  accounts: Account[],
-  positions: Position[],
-  interest: Map<string, number> = new Map(),
-  deposits: Map<string, number> = new Map()
-): LedgerRow[] {
-  return accounts.map((account) => {
-    const mine = positions.filter((p) => p.clientCode === account.code);
-    const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;
-    const dep = deposits.get(account.code) ?? 0;
-    const grossRealized = mine.reduce((s, p) => s + p.grossRealized, 0);
-    const brokerage = mine.reduce((s, p) => s + p.brokerage, 0);
-    const int = interest.get(account.code) ?? 0;
-    const unrealized = mine.reduce((s, p) => s + p.grossMtm, 0);
-    const balance = opening + dep + grossRealized - brokerage - int;
-    return { account, opening, deposits: dep, grossRealized, brokerage, interest: int, balance, unrealized, equity: balance + unrealized };
-  });
 }
 
 /** "12,345.00 Cr" / "12,345.00 Dr" */

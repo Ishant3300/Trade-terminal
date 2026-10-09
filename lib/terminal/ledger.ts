@@ -320,3 +320,51 @@ export function computeClientLedger(
     money, margin, funded: Math.max(0, margin - money), warnings,
   };
 }
+
+/**
+ * Trades as they stand after the last settlement billed on or before `asOf`
+ * (for the Reports page). NSE equity trades before that settlement are
+ * settled: they are replaced by one BF buy per lot still held, at the price it
+ * was carried at (the settlement's bhav close, else its earlier carry), with
+ * no brokerage. Later trades and other segments are unchanged. A settlement
+ * billed on `asOf` itself is not applied, so a month-end report shows that
+ * month's P&L.
+ */
+export function carryToSettlement(
+  trades: Trade[],
+  calcs: Map<number, TradeCalc>,
+  allSettlements: Settlement[],
+  asOf: string
+): { trades: Trade[]; calcs: Map<number, TradeCalc>; since: Settlement | null } {
+  const settlements = allSettlements.filter((s) => s.settleDate <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  const since = settlements[settlements.length - 1] ?? null;
+  if (!since) return { trades, calcs, since };
+
+  const settledEq = (t: Trade) => t.segment === "NSEEQ" && t.date < since.settleDate;
+  const out = trades.filter((t) => !settledEq(t));
+  const outCalcs = new Map(calcs);
+  const byClient = new Map<string, Trade[]>();
+  for (const t of trades) if (settledEq(t)) byClient.set(t.clientCode, [...(byClient.get(t.clientCode) ?? []), t]);
+
+  let id = 0;
+  for (const [clientCode, list] of byClient) {
+    for (const p of buildEquityLots(list, calcs).portions) {
+      if (p.closeDate !== null) continue;
+      let carry = p.netBuyRate;
+      for (const s of settlements) {
+        const price = s.prices[p.script];
+        if (p.buyDate <= s.priceDate && price > 0) carry = price;
+      }
+      const t: Trade = {
+        id: --id, ot: "T", date: since.settleDate, valan: "", segment: "NSEEQ", script: p.script, option: "", strike: 0,
+        tradeType: "BF", side: "B", lot: p.qty, qty: p.qty, rate: carry, clientCode, fullPayment: p.fullPayment,
+        user: "", ip: "", addTime: `${since.settleDate} 00:00:00`,
+      };
+      out.push(t);
+      outCalcs.set(t.id, {
+        slab: null, lotSize: 1, intraQty: 0, delQty: p.qty, intraWaived: false, brokerage: 0, brokPerUnit: 0, netRate: carry,
+      });
+    }
+  }
+  return { trades: out, calcs: outCalcs, since };
+}
