@@ -5,8 +5,9 @@ import type { Account, LedgerEntry, Settlement, Trade } from "./types";
 //
 //   Margin used   = value of open delivery lots: cost (net buy rate × qty,
 //                   brokerage included), or the settlement price once the lot
-//                   has been carried through a settlement; a lot counts from
-//                   its buy day through its sell day. Same-day (intraday) trades and Full Payment buys
+//                   has been carried through a settlement. Interest is on what
+//                   is open at the end of the day: a lot counts from its buy
+//                   day and is released on its sell day. Same-day (intraday) trades and Full Payment buys
 //                   use no margin.
 //   Client money  = opening balance + deposits − withdrawals ± journals
 //                   + P&L and MTM posted at monthly settlements
@@ -222,10 +223,10 @@ export function computeClientLedger(
       add(revalue, i, price * p.qty - amount);
       amount = price * p.qty;
     });
-    if (p.closeDate !== null && addDays(p.closeDate, 1) <= asOf) {
+    if (p.closeDate !== null && p.closeDate <= asOf) {
       changes.push({
-        date: addDays(p.closeDate, 1), kind: "RELEASE", money: 0, margin: -amount,
-        particulars: `Margin released: SOLD ${fmtQty(p.qty)} ${p.script} on ${dmy(p.closeDate)}`,
+        date: p.closeDate, kind: "RELEASE", money: 0, margin: -amount,
+        particulars: `SOLD ${fmtQty(p.qty)} ${p.script} @ ${fmtRate(p.sellNetRate!)} (net) — margin released`,
       });
     }
   }
