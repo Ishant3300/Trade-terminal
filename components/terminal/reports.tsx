@@ -115,6 +115,8 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
           bf -= billed.realized + billed.mtm - billed.interest;
           interest += billed.interest;
         }
+        // Same for an NCDEX week billed on the As on Friday: its P&L is shown in P&L.
+        for (const p of L.ncdexPostings) if (p.date === interestAsOf) bf -= p.amount;
         const pnl = all.filter((p) => p.clientCode === account.code).reduce((s, p) => s + p.realized + p.mtm, 0);
         return { account, bf, deposits, pnl, interest, equity: bf + deposits + pnl - interest };
       });
@@ -125,7 +127,11 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
     (s, r) => ({ bf: s.bf + r.bf, dep: s.dep + r.deposits, pnl: s.pnl + r.pnl, int: s.int + r.interest, eq: s.eq + r.equity }),
     { bf: 0, dep: 0, pnl: 0, int: 0, eq: 0 }
   );
-  const sinceNote = since ? `NSE equity from settlement ${fmtDate(addDays(since.settleDate, -1))}, carried at settle price` : "";
+  const ncdexSince = carried.ncdexSince;
+  const sinceNote = [
+    since && `NSE equity from settlement ${fmtDate(addDays(since.settleDate, -1))}`,
+    ncdexSince && `NCDEX from weekly settlement ${fmtDate(addDays(ncdexSince.settleDate, -1))}`,
+  ].filter(Boolean).join(", ") + (since || ncdexSince ? " — carried at settle price" : "");
 
   const [pdfBusy, setPdfBusy] = useState(false);
   const downloadPdf = async () => {
@@ -238,7 +244,7 @@ export function Reports({ data, calcs }: { data: TerminalData; calcs: Map<number
 
       <div className="tt-card">
         <div className="tt-card-h">
-          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Balance B/F (+Cr / −Dr) + Deposits (net) + P&amp;L − Interest · {since ? <>B/F = client money after settlement {fmtDate(addDays(since.settleDate, -1))}; deposits, P&amp;L and interest since then</> : "B/F = opening balance"} · P&amp;L includes open positions, net of brokerage</span>
+          Client Ledger <span className="tt-muted">— up to {f.to.split("-").reverse().join("-")} · Net Equity = Balance B/F (+Cr / −Dr) + Deposits (net) + P&amp;L − Interest · {since ? <>B/F = client money after settlement {fmtDate(addDays(since.settleDate, -1))} (incl. NCDEX weekly settlements); deposits, P&amp;L and interest since then</> : "B/F = opening balance + NCDEX weekly settlements"} · P&amp;L includes open positions, net of brokerage</span>
         </div>
         <div className="tt-grid-wrap">
           <table className="tt-grid">

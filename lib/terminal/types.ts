@@ -94,11 +94,18 @@ export interface LedgerEntry {
 }
 
 /** Monthly settlement: open NSE equity positions valued at bhav close of priceDate. */
+export type SettlementSegment = "NSEEQ" | "NCDEX";
+
+/**
+ * NSEEQ: monthly, billed on the month's last day, settleDate = 1st of the next month.
+ * NCDEX: weekly (Mon–Fri), billed on the Friday, settleDate = the Saturday after.
+ */
 export interface Settlement {
   id: number;
-  settleDate: string; // 1st of the month, e.g. 2026-10-01
+  segment: SettlementSegment;
+  settleDate: string; // day after billing, e.g. 2026-10-01 / Saturday 2026-10-10
   priceDate: string; // bhav date, e.g. 2026-09-30
-  prices: Record<string, number>; // script → close price
+  prices: Record<string, number>; // script / contract → close (NSE) or settlement price (NCDEX)
   sources: Record<string, string>;
 }
 

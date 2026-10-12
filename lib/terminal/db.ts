@@ -196,6 +196,7 @@ export const ledgerEntryToRow = (e: LedgerEntryInput) => ({
 
 export interface SettlementRow {
   id: number;
+  segment?: Settlement["segment"]; // absent until schema.sql adds the column
   settle_date: string;
   price_date: string;
   settlement_prices?: { script: string; price: number; source: string }[];
@@ -203,6 +204,7 @@ export interface SettlementRow {
 
 export const settlementFromRow = (r: SettlementRow): Settlement => ({
   id: r.id,
+  segment: r.segment ?? "NSEEQ",
   settleDate: r.settle_date,
   priceDate: r.price_date,
   prices: Object.fromEntries((r.settlement_prices ?? []).map((p) => [p.script, Number(p.price)])),

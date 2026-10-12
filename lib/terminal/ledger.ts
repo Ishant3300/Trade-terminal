@@ -1,4 +1,4 @@
-import { addDays, type TradeCalc } from "./engine";
+import { addDays, parseContract, type TradeCalc } from "./engine";
 import type { Account, LedgerEntry, Settlement, Trade } from "./types";
 
 // Client money ledger with interest on the funded amount (NSE equity only).
@@ -109,7 +109,7 @@ export function buildEquityLots(trades: Trade[], calcs: Map<number, TradeCalc>) 
   return { portions, intraday, warnings };
 }
 
-export type RowKind = "BF" | "REVALUE" | "BUY" | "RELEASE" | "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR" | "PNL" | "MTM" | "INTEREST";
+export type RowKind = "BF" | "NCDEX" | "REVALUE" | "BUY" | "RELEASE" | "DEPOSIT" | "WITHDRAWAL" | "JOURNAL_DR" | "JOURNAL_CR" | "PNL" | "MTM" | "INTEREST";
 
 export interface StatementRow {
   date: string; // date the change takes effect
@@ -146,6 +146,8 @@ export interface ClientLedger {
   money: number;
   margin: number;
   funded: number;
+  /** NCDEX weekly settlements posted to client money (no interest on NCDEX). */
+  ncdexPostings: NcdexPosting[];
   warnings: string[];
 }
 
@@ -168,8 +170,14 @@ export function computeClientLedger(
   const myEntries = entries.filter((e) => e.clientCode === account.code && e.date <= asOf);
   // A settlement is billed at the end of the month's last day (the day before its 1st-of-month key).
   const postDate = (s: Settlement) => addDays(s.settleDate, -1);
-  const settlements = allSettlements.filter((s) => postDate(s) <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  const settlements = allSettlements
+    .filter((s) => s.segment !== "NCDEX" && postDate(s) <= asOf)
+    .sort((a, b) => a.settleDate.localeCompare(b.settleDate));
   const rate = account.interestPct / 100 / 365;
+  // NCDEX weekly: P&L + MTM at the settlement price, posted on the Friday after that day's interest.
+  const ncdex = ncdexSettle(mine, calcs, allSettlements.filter((s) => s.segment === "NCDEX" && postDate(s) <= asOf));
+  const ncdexAt = new Map<string, NcdexPosting[]>();
+  for (const p of ncdex.postings) ncdexAt.set(p.date, [...(ncdexAt.get(p.date) ?? []), p]);
 
   // --- Settlement P&L per portion: MTM at each bhav, realized at the settlement after the sale.
   const realizedAt = new Map<number, number>(); // settlement index → realized P&L
@@ -252,7 +260,7 @@ export function computeClientLedger(
   changes.sort((a, b) => a.date.localeCompare(b.date) || order.indexOf(a.kind) - order.indexOf(b.kind));
 
   const opening = account.openingType === "Cr" ? account.openingBalance : -account.openingBalance;
-  const firstDate = [changes[0]?.date, settlements[0] && postDate(settlements[0])].filter(Boolean).sort()[0];
+  const firstDate = [changes[0]?.date, settlements[0] && postDate(settlements[0]), ncdex.postings[0]?.date].filter(Boolean).sort()[0];
   const rows: StatementRow[] = [];
   const summaries: SettlementSummary[] = [];
   let money = opening;
@@ -294,6 +302,10 @@ export function computeClientLedger(
       last.days += 1;
       last.interest += dayInterest;
 
+      for (const p of ncdexAt.get(d) ?? []) {
+        push(d, "NCDEX", `NCDEX weekly settlement ${dmy(addDays(d, -4))} to ${dmy(d)}: P&L & MTM @ settlement price ${dmy(p.settlement.priceDate)}${p.missing.length ? ` (no price: ${p.missing.join(", ")})` : ""}`, p.amount, 0);
+      }
+
       // Month-end billing, after the day's interest: P&L, MTM @ bhav and the period's interest.
       // The new balance applies from the next day (the 1st).
       while (si < settlements.length && postDate(settlements[si]) === d) {
@@ -318,54 +330,135 @@ export function computeClientLedger(
 
   return {
     account, rows, settlements: summaries, postedInterest, accruedInterest: periodInterest, pendingPnl,
-    money, margin, funded: Math.max(0, margin - money), warnings,
+    money, margin, funded: Math.max(0, margin - money), ncdexPostings: ncdex.postings, warnings,
   };
 }
 
+export interface NcdexPosting {
+  settlement: Settlement;
+  date: string; // billing Friday (settleDate − 1)
+  amount: number; // P&L + MTM, net of brokerage
+  missing: string[]; // open contracts without a settlement price (carried to the next week)
+}
+
 /**
- * Trades as they stand after the last settlement billed on or before `asOf`
- * (for the Reports page). NSE equity trades before that settlement are
- * settled: they are replaced by one BF buy per lot still held, at the price it
- * was carried at (the settlement's bhav close, else its earlier carry), with
- * no brokerage. Later trades and other segments are unchanged. A settlement
- * billed on `asOf` itself is not applied, so a month-end report shows that
- * month's P&L.
+ * NCDEX weekly settlement for one client. Per contract, each week's amount is
+ *   Σ trade cash (sell +, buy −, at net rates) + open qty × settlement price
+ *   − open qty carried in × last week's settlement price,
+ * i.e. realized P&L plus MTM; open positions (long or short) carry forward at the
+ * settlement price. A contract expiring in the week settles at its expiry price.
+ * A contract still open without a price is left for the next settlement.
+ * `settlements`: NCDEX settlements to apply (any order).
+ */
+export function ncdexSettle(trades: Trade[], calcs: Map<number, TradeCalc>, settlements: Settlement[]) {
+  const weeks = settlements.filter((s) => s.segment === "NCDEX").sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  const byContract = new Map<string, Trade[]>();
+  for (const t of trades) if (t.segment === "NCDEX") byContract.set(t.script, [...(byContract.get(t.script) ?? []), t]);
+
+  const amounts = weeks.map(() => 0);
+  const missing = weeks.map(() => [] as string[]);
+  const active = weeks.map(() => false);
+  /** Last settlement per contract: from its settleDate the position stands at qty @ price. */
+  const settled = new Map<string, { settleDate: string; qty: number; price: number }>();
+  for (const [contract, list] of byContract) {
+    list.sort((a, b) => a.date.localeCompare(b.date) || a.addTime.localeCompare(b.addTime) || a.id - b.id);
+    const expiry = parseContract(contract)?.expiry ?? "9999-12-31";
+    let i = 0;
+    let qty = 0;
+    let basis = 0; // carried qty × last settlement price
+    let cash = 0;
+    weeks.forEach((s, w) => {
+      const friday = addDays(s.settleDate, -1);
+      for (; i < list.length && list[i].date <= friday; i++) {
+        const t = list[i];
+        const net = calcs.get(t.id)?.netRate ?? t.rate;
+        qty += t.side === "B" ? t.qty : -t.qty;
+        cash += (t.side === "B" ? -1 : 1) * net * t.qty;
+      }
+      if (!qty && !cash && !basis) return;
+      const price = s.prices[contract];
+      if (qty && !(price > 0)) {
+        missing[w].push(contract);
+        return;
+      }
+      active[w] = true;
+      amounts[w] += cash + (qty ? qty * price : 0) - basis;
+      if (expiry <= friday) qty = 0; // expired: closed at its final settlement price
+      cash = 0;
+      basis = qty ? qty * price : 0;
+      settled.set(contract, { settleDate: s.settleDate, qty, price: qty ? price : 0 });
+    });
+  }
+  const postings: NcdexPosting[] = weeks
+    .map((s, w) => ({ settlement: s, date: addDays(s.settleDate, -1), amount: round2(amounts[w]), missing: missing[w].sort() }))
+    .filter((p, w) => active[w] || p.missing.length);
+  return { postings, settled };
+}
+
+/**
+ * Trades as they stand after the last settlements on or before `asOf` (for the
+ * Reports page), so P&L runs from the last settlement:
+ * - NSE equity before the last monthly settlement is replaced by one BF buy per
+ *   lot still held, at the price it was carried at (bhav close, else earlier carry).
+ * - NCDEX trades before a contract's last weekly settlement are replaced by one BF
+ *   trade for the open position (long or short) at that settlement price.
+ * Carried positions have no brokerage. Other segments are unchanged. A settlement
+ * billed on `asOf` itself is not applied, so a billing-day report shows that
+ * period's P&L.
  */
 export function carryToSettlement(
   trades: Trade[],
   calcs: Map<number, TradeCalc>,
   allSettlements: Settlement[],
   asOf: string
-): { trades: Trade[]; calcs: Map<number, TradeCalc>; since: Settlement | null } {
-  const settlements = allSettlements.filter((s) => s.settleDate <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
-  const since = settlements[settlements.length - 1] ?? null;
-  if (!since) return { trades, calcs, since };
+): { trades: Trade[]; calcs: Map<number, TradeCalc>; since: Settlement | null; ncdexSince: Settlement | null } {
+  const applied = allSettlements.filter((s) => s.settleDate <= asOf).sort((a, b) => a.settleDate.localeCompare(b.settleDate));
+  const monthly = applied.filter((s) => s.segment !== "NCDEX");
+  const weekly = applied.filter((s) => s.segment === "NCDEX");
+  const since = monthly[monthly.length - 1] ?? null;
+  const ncdexSince = weekly[weekly.length - 1] ?? null;
+  if (!since && !ncdexSince) return { trades, calcs, since, ncdexSince };
 
-  const settledEq = (t: Trade) => t.segment === "NSEEQ" && t.date < since.settleDate;
-  const out = trades.filter((t) => !settledEq(t));
   const outCalcs = new Map(calcs);
-  const byClient = new Map<string, Trade[]>();
-  for (const t of trades) if (settledEq(t)) byClient.set(t.clientCode, [...(byClient.get(t.clientCode) ?? []), t]);
-
+  const carried: Trade[] = [];
   let id = 0;
-  for (const [clientCode, list] of byClient) {
+  const carry = (clientCode: string, segment: "NSEEQ" | "NCDEX", script: string, side: "B" | "S", qty: number, rate: number, date: string, fullPayment = false) => {
+    const t: Trade = {
+      id: --id, ot: "T", date, valan: "", segment, script, option: "", strike: 0, tradeType: "BF", side, lot: qty, qty, rate,
+      clientCode, fullPayment, user: "", ip: "", addTime: `${date} 00:00:00`,
+    };
+    carried.push(t);
+    outCalcs.set(t.id, { slab: null, lotSize: 1, intraQty: 0, delQty: qty, intraWaived: false, brokerage: 0, brokPerUnit: 0, netRate: rate });
+  };
+
+  // NSE equity (monthly).
+  const settledEq = (t: Trade) => !!since && t.segment === "NSEEQ" && t.date < since.settleDate;
+  const eqByClient = new Map<string, Trade[]>();
+  for (const t of trades) if (settledEq(t)) eqByClient.set(t.clientCode, [...(eqByClient.get(t.clientCode) ?? []), t]);
+  for (const [clientCode, list] of eqByClient) {
     for (const p of buildEquityLots(list, calcs).portions) {
       if (p.closeDate !== null) continue;
-      let carry = p.netBuyRate;
-      for (const s of settlements) {
-        const price = s.prices[p.script];
-        if (p.buyDate <= s.priceDate && price > 0) carry = price;
-      }
-      const t: Trade = {
-        id: --id, ot: "T", date: since.settleDate, valan: "", segment: "NSEEQ", script: p.script, option: "", strike: 0,
-        tradeType: "BF", side: "B", lot: p.qty, qty: p.qty, rate: carry, clientCode, fullPayment: p.fullPayment,
-        user: "", ip: "", addTime: `${since.settleDate} 00:00:00`,
-      };
-      out.push(t);
-      outCalcs.set(t.id, {
-        slab: null, lotSize: 1, intraQty: 0, delQty: p.qty, intraWaived: false, brokerage: 0, brokPerUnit: 0, netRate: carry,
-      });
+      let price = p.netBuyRate;
+      for (const s of monthly) if (p.buyDate <= s.priceDate && s.prices[p.script] > 0) price = s.prices[p.script];
+      carry(clientCode, "NSEEQ", p.script, "B", p.qty, price, since!.settleDate, p.fullPayment);
     }
   }
-  return { trades: out, calcs: outCalcs, since };
+
+  // NCDEX (weekly), per client and contract.
+  const settledAt = new Map<string, string>(); // client|contract → settleDate
+  if (ncdexSince) {
+    const byClient = new Map<string, Trade[]>();
+    for (const t of trades) if (t.segment === "NCDEX") byClient.set(t.clientCode, [...(byClient.get(t.clientCode) ?? []), t]);
+    for (const [clientCode, list] of byClient) {
+      for (const [contract, st] of ncdexSettle(list, calcs, weekly).settled) {
+        settledAt.set(`${clientCode}|${contract}`, st.settleDate);
+        if (st.qty) carry(clientCode, "NCDEX", contract, st.qty > 0 ? "B" : "S", Math.abs(st.qty), st.price, st.settleDate);
+      }
+    }
+  }
+  const settledNcdex = (t: Trade) => {
+    const at = t.segment === "NCDEX" ? settledAt.get(`${t.clientCode}|${t.script}`) : undefined;
+    return !!at && t.date < at;
+  };
+  return { trades: [...trades.filter((t) => !settledEq(t) && !settledNcdex(t)), ...carried], calcs: outCalcs, since, ncdexSince };
 }

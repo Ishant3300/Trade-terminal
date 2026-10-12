@@ -103,6 +103,12 @@ create table if not exists public.settlements (
   created_at timestamptz not null default now()
 );
 
+-- Settlements per segment: NSEEQ monthly (settle_date = 1st of next month),
+-- NCDEX weekly (settle_date = Saturday after the Friday whose bhav is used).
+alter table public.settlements add column if not exists segment text not null default 'NSEEQ' check (segment in ('NSEEQ', 'NCDEX'));
+alter table public.settlements drop constraint if exists settlements_settle_date_key;
+create unique index if not exists settlements_segment_settle_date on public.settlements (segment, settle_date);
+
 create table if not exists public.settlement_prices (
   settlement_id bigint not null references public.settlements (id) on delete cascade,
   script text not null,

@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getQuotes, streamSetup, type FeedStatus, type Quote, type StreamSetup } from "@/lib/angel";
 import { checkCredentials, createSessionToken, SESSION_COOKIE, SESSION_HOURS, verifySessionToken } from "@/lib/auth";
-import { settlementPrices, type SettlementPrices } from "@/lib/bhav";
+import { ncdexSettlementPrices, settlementPrices, type SettlementPrices } from "@/lib/bhav";
 import { requestIp } from "@/lib/request-ip";
 import { db } from "@/lib/supabase/server";
 import {
@@ -246,7 +246,15 @@ export async function fetchSettlementPrices(monthEnd: string, scripts: string[])
   return { ok: true, data: await settlementPrices(monthEnd, scripts.filter((x) => typeof x === "string").slice(0, 2000)) };
 }
 
+/** NCDEX settlement prices for the week ending `friday` (contracts as "CASTOR 16OCT2026"). */
+export async function fetchNcdexPrices(friday: string, contracts: string[]): Promise<Result<SettlementPrices>> {
+  if (!(await sessionUser())) return NOT_LOGGED_IN;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(friday) || !Array.isArray(contracts)) return { ok: false, error: "Bad request" };
+  return { ok: true, data: await ncdexSettlementPrices(friday, contracts.filter((x) => typeof x === "string").slice(0, 500)) };
+}
+
 export interface SettlementInput {
+  segment: Settlement["segment"];
   settleDate: string;
   priceDate: string;
   prices: Record<string, { price: number; source: string }>;
@@ -258,11 +266,18 @@ export async function saveSettlement(input: SettlementInput): Promise<Result<Set
   if (!user) return NOT_LOGGED_IN;
   const bad = Object.entries(input.prices).filter(([, p]) => !(p.price > 0)).map(([s]) => s);
   if (bad.length) return { ok: false, error: `Enter a price for: ${bad.join(", ")}` };
-  const { data: settlement, error } = await db()
+  if (input.segment !== "NSEEQ" && input.segment !== "NCDEX") return { ok: false, error: "Bad segment" };
+  const head = { settle_date: input.settleDate, price_date: input.priceDate, user_name: user };
+  let { data: settlement, error } = await db()
     .from("settlements")
-    .upsert({ settle_date: input.settleDate, price_date: input.priceDate, user_name: user }, { onConflict: "settle_date" })
+    .upsert({ ...head, segment: input.segment }, { onConflict: "segment,settle_date" })
     .select()
     .single<SettlementRow>();
+  // Database not yet migrated (no segment column): NSE monthly still works.
+  if (error && /segment|constraint matching/i.test(error.message)) {
+    if (input.segment !== "NSEEQ") return { ok: false, error: "NCDEX weekly settlement needs the database update — run supabase/schema.sql" };
+    ({ data: settlement, error } = await db().from("settlements").upsert(head, { onConflict: "settle_date" }).select().single<SettlementRow>());
+  }
   if (error || !settlement) return { ok: false, error: error ? setupError(error) : "Not saved" };
   const del = await db().from("settlement_prices").delete().eq("settlement_id", settlement.id);
   if (del.error) return { ok: false, error: setupError(del.error) };
