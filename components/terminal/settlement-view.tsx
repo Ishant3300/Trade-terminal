@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { fetchNcdexPrices, fetchSettlementPrices } from "@/app/actions";
 import { addDays, fmt0, fmt2, fmtDate, parseContract, toDateStr, type TradeCalc } from "@/lib/terminal/engine";
-import { buildEquityLots, computeClientLedger, ncdexSettle } from "@/lib/terminal/ledger";
+import { buildEquityLots, computeClientLedger, ncdexBill, ncdexSettle } from "@/lib/terminal/ledger";
+import { NcdexBillCard } from "./ncdex-bill";
 import type { TerminalData } from "@/lib/terminal/types";
 import type { TerminalActions } from "./store";
 import { Field, PnL } from "./ui";
@@ -364,6 +365,15 @@ function WeeklyNcdexSettlement({ data, calcs, actions }: Props) {
     setMessage(res.ok ? { ok: true, text: `NCDEX week ${fmtDate(monday)} – ${fmtDate(friday)} settled — postings below` } : { ok: false, text: `Not saved: ${res.error}` });
   };
 
+  const [billFor, setBillFor] = useState<string | null>(null);
+  const bill = useMemo(() => {
+    const account = data.accounts.find((a) => a.code === billFor);
+    if (!existing || !account) return null;
+    const mine = data.trades.filter((t) => t.clientCode === account.code);
+    const L = computeClientLedger(account, data.trades, calcs, data.entries, data.settlements, friday);
+    return { account, bill: ncdexBill(mine, calcs, data.settlements, existing), moneyAfter: L.money };
+  }, [billFor, existing, data.accounts, data.trades, data.entries, data.settlements, calcs, friday]);
+
   const postings = useMemo(() => {
     if (!existing) return [];
     return data.accounts
@@ -434,7 +444,7 @@ function WeeklyNcdexSettlement({ data, calcs, actions }: Props) {
           <div className="tt-card-h">Postings on {fmtDate(friday)} <span className="tt-muted">— per client: NCDEX P&amp;L + MTM for the week, net of brokerage</span></div>
           <div className="tt-grid-wrap">
             <table className="tt-grid">
-              <thead><tr><th>Client</th><th className="num">P&amp;L + MTM</th><th className="num">Client Money after</th><th>Missing prices</th></tr></thead>
+              <thead><tr><th>Client</th><th className="num">P&amp;L + MTM</th><th className="num">Client Money after</th><th>Missing prices</th><th className="ctr">Bill</th></tr></thead>
               <tbody>
                 {postings.map(({ account, p, money }) => (
                   <tr key={account.code}>
@@ -442,13 +452,17 @@ function WeeklyNcdexSettlement({ data, calcs, actions }: Props) {
                     <td className="num"><PnL value={p.amount} /></td>
                     <td className={`num ${money < 0 ? "neg" : "pos"}`}>{fmt2(Math.abs(money))} {money < 0 ? "Dr" : "Cr"}</td>
                     <td className="bad">{p.missing.join(", ")}</td>
+                    <td className="ctr"><button type="button" className="tt-btn tt-btn-blue tt-btn-xs" onClick={() => setBillFor(account.code)}>Bill</button></td>
                   </tr>
                 ))}
-                {!postings.length && <tr><td colSpan={4} className="empty">Nothing posted for this week.</td></tr>}
+                {!postings.length && <tr><td colSpan={5} className="empty">Nothing posted for this week.</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+      {existing && bill && (
+        <NcdexBillCard account={bill.account} bill={bill.bill} priceDate={existing.priceDate} moneyAfter={bill.moneyAfter} onClose={() => setBillFor(null)} />
       )}
     </>
   );

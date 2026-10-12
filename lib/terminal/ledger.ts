@@ -462,3 +462,81 @@ export function carryToSettlement(
   };
   return { trades: [...trades.filter((t) => !settledEq(t) && !settledNcdex(t)), ...carried], calcs: outCalcs, since, ncdexSince };
 }
+
+export interface NcdexBillLine {
+  date: string;
+  time: string; // HH:MM:SS, "" for B/F and C/F
+  kind: "BF" | "BUY" | "SELL" | "CF" | "EXPIRY";
+  qty: number;
+  rate: number; // trade rate, or settlement price for B/F / C/F
+  brokerage: number;
+  netRate: number;
+  amount: number; // + credit (sell side), − debit (buy side), at net rate
+}
+
+export interface NcdexBillContract {
+  contract: string;
+  lines: NcdexBillLine[];
+  grossPnl: number; // before brokerage
+  brokerage: number;
+  netPnl: number; // = Σ amount
+  /** Still open without a settlement price: not billed this week. */
+  unpriced: boolean;
+}
+
+/**
+ * Weekly NCDEX bill of one client for `settlement`: positions brought forward
+ * at the last settlement price, the week's trades, positions carried forward at
+ * this settlement's price (expired contracts closed at their expiry price).
+ * Net P&L per contract equals what ncdexSettle posts for that week.
+ */
+export function ncdexBill(trades: Trade[], calcs: Map<number, TradeCalc>, settlements: Settlement[], settlement: Settlement) {
+  const friday = addDays(settlement.settleDate, -1);
+  const mine = trades.filter((t) => t.segment === "NCDEX" && t.date <= friday);
+  const earlier = settlements.filter((s) => s.segment === "NCDEX" && s.settleDate < settlement.settleDate);
+  const prior = ncdexSettle(mine, calcs, earlier).settled;
+  const byContract = new Map<string, Trade[]>();
+  for (const t of mine) byContract.set(t.script, [...(byContract.get(t.script) ?? []), t]);
+
+  const contracts: NcdexBillContract[] = [];
+  for (const [contract, list] of [...byContract].sort(([a], [b]) => a.localeCompare(b))) {
+    const from = prior.get(contract);
+    const week = list
+      .filter((t) => !from || t.date >= from.settleDate)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.addTime.localeCompare(b.addTime) || a.id - b.id);
+    if (!week.length && !from?.qty) continue;
+    const lines: NcdexBillLine[] = [];
+    let qty = 0;
+    if (from?.qty) {
+      qty = from.qty;
+      lines.push({
+        date: addDays(from.settleDate, -1), time: "", kind: "BF", qty: Math.abs(from.qty), rate: from.price, brokerage: 0, netRate: from.price,
+        amount: -from.qty * from.price,
+      });
+    }
+    let brokerage = 0;
+    for (const t of week) {
+      const c = calcs.get(t.id);
+      const net = c?.netRate ?? t.rate;
+      brokerage += c?.brokerage ?? 0;
+      qty += t.side === "B" ? t.qty : -t.qty;
+      lines.push({
+        date: t.date, time: t.addTime.slice(11, 19), kind: t.side === "B" ? "BUY" : "SELL", qty: t.qty, rate: t.rate,
+        brokerage: c?.brokerage ?? 0, netRate: net, amount: (t.side === "B" ? -1 : 1) * net * t.qty,
+      });
+    }
+    const price = settlement.prices[contract];
+    const unpriced = !!qty && !(price > 0);
+    if (qty && !unpriced) {
+      const expired = (parseContract(contract)?.expiry ?? "9999-12-31") <= friday;
+      lines.push({
+        date: friday, time: "", kind: expired ? "EXPIRY" : "CF", qty: Math.abs(qty), rate: price, brokerage: 0, netRate: price,
+        amount: qty * price,
+      });
+    }
+    const netPnl = unpriced ? 0 : round2(lines.reduce((s, l) => s + l.amount, 0));
+    contracts.push({ contract, lines, grossPnl: unpriced ? 0 : round2(netPnl + brokerage), brokerage: round2(brokerage), netPnl, unpriced });
+  }
+  const sum = (k: "grossPnl" | "brokerage" | "netPnl") => round2(contracts.filter((c) => !c.unpriced).reduce((s, c) => s + c[k], 0));
+  return { friday, monday: addDays(friday, -4), contracts, grossPnl: sum("grossPnl"), brokerage: sum("brokerage"), netPnl: sum("netPnl") };
+}
