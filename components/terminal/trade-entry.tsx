@@ -214,9 +214,18 @@ export function TradeEntry({
     setSaving(false);
     if (!res.ok) return fail(`Not saved: ${res.error}`);
     const net = draftCalc ? fmt2(draftCalc.netRate) : fmt2(rate);
+    // Client's open position in this contract before this trade, and after it.
+    const key = instrumentKey(draft);
+    const before = data.trades
+      .filter((t) => t.id !== editingId && t.clientCode === draft.clientCode && t.date <= draft.date && instrumentKey(t) === key)
+      .reduce((n, t) => n + (t.side === "B" ? t.qty : -t.qty), 0);
+    const after = before + (draft.side === "B" ? qty : -qty);
+    const lotNote = (n: number) => (DERIVATIVE_SEGMENTS.has(form.segment) && inst.lotSize > 1 && n ? ` (${fmtLots(Math.abs(n) / inst.lotSize)} lot)` : "");
+    const pos = (n: number) => (n > 0 ? `${fmt0(n)}${lotNote(n)} Buy` : n < 0 ? `${fmt0(-n)}${lotNote(n)} Sell` : "0");
     setMessage({
       ok: true,
-      text: `${editingId != null ? "Updated" : "Saved"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${inst.name}${isOpt ? ` ${form.strike} ${form.option}` : ""} @ ${fmt2(rate)} (net ${net}) — ${account.code} ${account.name}`,
+      text: `${editingId != null ? "Updated" : "Saved"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${inst.name}${isOpt ? ` ${form.strike} ${form.option}` : ""} @ ${fmt2(rate)} (net ${net}) — ${account.code} ${account.name}` +
+        ` · Open ${pos(before)} + ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} = Net Qty ${after ? pos(after) : "0 (squared off)"}`,
     });
     setEditingId(null);
     setForm((f) => ({ ...f, lot: "", qty: "", rate: "", fullPayment: false }));
