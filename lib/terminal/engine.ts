@@ -406,8 +406,8 @@ export function drCr(n: number): string {
 
 const SESSION: Record<Segment, [string, string]> = {
   NSEEQ: ["09:15", "15:30"],
-  NSEFUT: ["09:15", "15:30"],
-  NSEOPT: ["09:15", "15:30"],
+  NSEFUT: ["09:15", "15:40"], // NSE equity derivatives close at 15:40 from 3 Aug 2026
+  NSEOPT: ["09:15", "15:40"],
   MCXFUT: ["09:00", "23:30"],
   NCDEX: ["09:00", "17:00"],
 };
