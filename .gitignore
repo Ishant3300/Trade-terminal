@@ -43,3 +43,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# Local downloads (bhav copies etc.)
+downloads/

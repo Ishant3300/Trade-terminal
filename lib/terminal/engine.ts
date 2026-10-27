@@ -5,6 +5,7 @@ import {
   PART_LOT_SEGMENTS,
   type Instrument,
   type Segment,
+  type Side,
   type Slab,
   type Trade,
 } from "./types";
@@ -397,4 +398,39 @@ export function daysInclusive(from: string, to: string): number {
 export function drCr(n: number): string {
   if (Math.abs(n) < 0.005) return "0.00";
   return `${fmt2(Math.abs(n))} ${n >= 0 ? "Cr" : "Dr"}`;
+}
+
+// ---------------------------------------------------------------------------
+// Market hours (IST) — limit orders only execute while the market is open
+// ---------------------------------------------------------------------------
+
+const SESSION: Record<Segment, [string, string]> = {
+  NSEEQ: ["09:15", "15:30"],
+  NSEFUT: ["09:15", "15:30"],
+  NSEOPT: ["09:15", "15:30"],
+  MCXFUT: ["09:00", "23:30"],
+  NCDEX: ["09:00", "17:00"],
+};
+
+/** Today's date (YYYY-MM-DD) and time (HH:MM) in India, whatever the device's time zone. */
+export function istNow(at = new Date()): { date: string; time: string; weekday: number } {
+  const ist = new Date(at.getTime() + 5.5 * 3600_000);
+  return { date: ist.toISOString().slice(0, 10), time: ist.toISOString().slice(11, 16), weekday: ist.getUTCDay() };
+}
+
+/** Is the segment's normal trading session open now (Mon–Fri, IST)? Exchange holidays are not known. */
+export function marketOpen(segment: Segment, at = new Date()): boolean {
+  const { time, weekday } = istNow(at);
+  const [open, close] = SESSION[segment];
+  return weekday >= 1 && weekday <= 5 && time >= open && time < close;
+}
+
+/** True when a live quote reaches a limit: BUY when ask (else LTP) ≤ limit, SELL when bid (else LTP) ≥ limit. */
+export function limitReached(side: Side, limit: number, q: { ltp: number; bid: number | null; ask: number | null }): number | null {
+  if (side === "B") {
+    const p = q.ask && q.ask > 0 ? q.ask : q.ltp;
+    return p > 0 && p <= limit ? p : null;
+  }
+  const p = q.bid && q.bid > 0 ? q.bid : q.ltp;
+  return p > 0 && p >= limit ? p : null;
 }

@@ -2,11 +2,12 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
-  computeTradeCalcs, fmt2, fmt0, fmtDate, fmtLots, findInstrument, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
+  computeTradeCalcs, contractLabel, fmt2, fmt0, fmtDate, fmtLots, findInstrument, istNow, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
-import { DERIVATIVE_SEGMENTS, PART_LOT_SEGMENTS, SEGMENTS, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
+import { DERIVATIVE_SEGMENTS, PART_LOT_SEGMENTS, SEGMENTS, type LimitOrder, type OptionType, type Segment, type Side, type TerminalData, type Trade, type TradeType } from "@/lib/terminal/types";
+import { LimitOrders } from "./limit-orders";
 import { useLiveQuotes } from "./quotes";
 import type { TerminalActions } from "./store";
 import { Field, Suggest } from "./ui";
@@ -54,6 +55,10 @@ export function TradeEntry({
   const [saving, setSaving] = useState(false);
   /** Rate follows the live Ask (buy) / Bid (sell) until the user types a rate. */
   const [rateLive, setRateLive] = useState(true);
+  /** Market = book the trade now; Limit = Day order, booked when the live price reaches it. */
+  const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
+  const [editingLimitId, setEditingLimitId] = useState<number | null>(null);
+  const isLimit = orderType === "LIMIT";
 
   const dateRef = useRef<HTMLInputElement>(null);
   const valanRef = useRef<HTMLInputElement>(null);
@@ -168,6 +173,7 @@ export function TradeEntry({
     setRateLive(true);
     setForm((f) => (keepHeader ? { ...initialForm(), date: f.date, valan: f.valan, segment: f.segment, side: f.side, tradeType: f.tradeType, checkHL: f.checkHL } : initialForm()));
     setEditingId(null);
+    setEditingLimitId(null);
     setTimeout(() => scriptRef.current?.focus(), 0);
   };
 
@@ -193,7 +199,7 @@ export function TradeEntry({
       return fail(`Quantity must be a multiple of lot size ${inst.lotSize}`, qtyRef.current);
     const rate = num(rateStr);
     if (!(rate > 0)) return fail("Enter rate", rateRef.current);
-    if (form.checkHL && form.date === today()) { // day range only means something for today
+    if (!isLimit && form.checkHL && form.date === today()) { // day range only means something for today
       if (!tick) return fail("Check HL: no live high/low for this contract — untick Check HL to save", rateRef.current);
       if (rate < tick.low || rate > tick.high)
         return fail(`Rate ${fmt2(rate)} outside day range L ${fmt2(tick.low)} – H ${fmt2(tick.high)}`, rateRef.current);
@@ -207,6 +213,25 @@ export function TradeEntry({
       const after = openFutLots([...others, draft], INSTRUMENTS, account.code, draft.date);
       if (after > account.maxFutLots && after > before)
         return fail(`${account.code} limit is ${fmt0(account.maxFutLots)} NSEFUT lots — open now ${fmtLots(before)}, this trade would make ${fmtLots(after)}`, lotRef.current);
+    }
+
+    if (isLimit) {
+      if (form.date !== istNow().date) return fail("Limit orders are Day orders — set Date to today", dateRef.current);
+      setSaving(true);
+      const res = await actions.saveLimit({
+        id: editingLimitId ?? undefined, segment: draft.segment, script: draft.script, option: draft.option, strike: draft.strike,
+        side: draft.side, qty, limitPrice: rate, clientCode: account.code,
+      });
+      setSaving(false);
+      if (!res.ok) return fail(`Limit not placed: ${res.error}`);
+      setMessage({
+        ok: true,
+        text: `${editingLimitId != null ? "Limit modified" : "Limit placed"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${contractLabel(draft)} @ ${fmt2(rate)} — ${account.code} ${account.name} · pending, executes when ${form.side === "B" ? "ask ≤" : "bid ≥"} ${fmt2(rate)}`,
+      });
+      setEditingLimitId(null);
+      setForm((f) => ({ ...f, lot: "", qty: "", rate: "" }));
+      setTimeout(() => lotRef.current?.focus(), 0);
+      return;
     }
 
     setSaving(true);
@@ -243,6 +268,20 @@ export function TradeEntry({
     }));
     setMessage({ ok: true, text: `Editing trade #${t.id} — change fields and press Alt+S / Save` });
     setTimeout(() => qtyRef.current?.focus(), 0);
+  };
+
+  const modifyLimit = (o: LimitOrder) => {
+    setOrderType("LIMIT");
+    setRateLive(false);
+    setEditingId(null);
+    setEditingLimitId(o.id);
+    const i = findInstrument(INSTRUMENTS, o.segment, o.script);
+    setForm((f) => ({
+      ...f, date: o.date, valan: valanFor(o.date), segment: o.segment, side: o.side, tradeType: "NRM", script: o.script, option: o.option,
+      strike: o.strike ? String(o.strike) : "", qty: String(o.qty), lot: i ? lotText(o.qty, i.lotSize, o.segment) : "", rate: String(o.limitPrice), clientCode: o.clientCode,
+    }));
+    setMessage({ ok: true, text: `Modifying limit #${o.id} — change quantity / limit price and press Modify limit` });
+    setTimeout(() => rateRef.current?.focus(), 0);
   };
 
   const remove = async (t: Trade) => {
@@ -371,6 +410,16 @@ export function TradeEntry({
             <label className="tt-check" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
               <input type="checkbox" checked={form.checkHL} onChange={(e) => set("checkHL", e.target.checked)} /> Check HL
             </label>
+            <div className="flex items-center gap-2" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}>
+              <span className="tt-label">Order</span>
+              <label className="tt-check">
+                <input type="radio" name="otype" checked={!isLimit} onChange={() => { setOrderType("MARKET"); setEditingLimitId(null); setRateLive(true); }} /> Market
+              </label>
+              <label className="tt-check" style={isLimit ? { fontWeight: 700, color: "#7a4b00" } : undefined}>
+                <input type="radio" name="otype" checked={isLimit} disabled={editingId != null}
+                  onChange={() => { setOrderType("LIMIT"); setRateLive(false); setForm((f) => ({ ...f, tradeType: "NRM", date: istNow().date, valan: valanFor(istNow().date), rate: livePrice ? String(livePrice) : f.rate })); }} /> Limit
+              </label>
+            </div>
             {form.segment === "NSEEQ" && form.side === "B" && (
               <label className="tt-check" style={{ height: 26, borderLeft: "1px solid #c3cad5", paddingLeft: 10 }}
                 title="Client paid the full amount — no interest is charged on this buy">
@@ -426,7 +475,7 @@ export function TradeEntry({
             </Field>
             <Field
               label={
-                <>
+                isLimit ? <>Limit Price<span className="tt-req">*</span></> : <>
                   Rate<span className="tt-req">*</span>{" "}
                   <span
                     className={`tt-rate-mode ${rateLive ? "live" : ""}`}
@@ -459,7 +508,7 @@ export function TradeEntry({
             </Field>
             <div className="flex gap-1">
               <button ref={saveRef} type="button" className="tt-btn tt-btn-save" onClick={save} disabled={saving}>
-                {saving ? "Saving…" : editingId != null ? "Update" : "Save"}
+                {saving ? "Saving…" : isLimit ? (editingLimitId != null ? "Modify limit" : "Place limit") : editingId != null ? "Update" : "Save"}
               </button>
               <button type="button" className="tt-btn" onClick={() => { resetForm(); setMessage(null); }}>Cancel</button>
             </div>
@@ -527,6 +576,8 @@ export function TradeEntry({
           </table>
         </div>
       </div>
+
+      <LimitOrders data={data} actions={actions} onModify={modifyLimit} />
     </div>
   );
 }

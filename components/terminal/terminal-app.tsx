@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AccountMaster } from "./account-master";
 import { BrokerageMaster } from "./brokerage-master";
 import { LedgerView } from "./ledger-view";
+import { LimitWatcher } from "./limit-watcher";
 import { Reports } from "./reports";
 import { SettlementView } from "./settlement-view";
 import { useTerminalStore } from "./store";
@@ -69,6 +70,7 @@ export default function TerminalApp({ user, ip }: { user: string; ip: string }) 
         !error && <div className="tt-page tt-muted" style={{ fontSize: 13 }}>Loading data…</div>
       ) : (
         <>
+          <LimitWatcher data={data} actions={actions} />
           {tab === "entry" && <TradeEntry data={data} actions={actions} calcs={calcs} />}
           {tab === "book" && <TradeBook data={data} calcs={calcs} />}
           {tab === "brokerage" && <BrokerageMaster data={data} actions={actions} />}

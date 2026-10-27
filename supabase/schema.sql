@@ -143,3 +143,29 @@ alter table public.settlement_prices enable row level security;
 
 revoke all on table public.accounts, public.brokerage_slabs, public.trades, public.broker_session,
   public.ledger_entries, public.settlements, public.settlement_prices from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Limit orders (Day): pending until the live price reaches the limit, then
+-- executed as a trade at the limit price. Day orders expire after their date.
+-- ---------------------------------------------------------------------------
+create table if not exists public.limit_orders (
+  id bigint generated always as identity primary key,
+  order_date date not null,
+  segment text not null check (segment in ('NSEFUT', 'NSEOPT', 'MCXFUT', 'NCDEX', 'NSEEQ')),
+  script text not null,
+  option_type text not null default '',
+  strike numeric(14, 4) not null default 0,
+  side text not null check (side in ('B', 'S')),
+  qty integer not null check (qty > 0),
+  limit_price numeric(14, 4) not null check (limit_price > 0),
+  client_code text not null references public.accounts (code) on update cascade on delete restrict,
+  status text not null default 'PENDING' check (status in ('PENDING', 'EXECUTED', 'CANCELLED', 'EXPIRED', 'REJECTED')),
+  note text not null default '',
+  trade_id bigint references public.trades (id) on delete set null,
+  trigger_price numeric(14, 4),
+  executed_at timestamptz,
+  user_name text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.limit_orders enable row level security;
+revoke all on public.limit_orders from anon, authenticated;

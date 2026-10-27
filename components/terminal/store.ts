@@ -36,6 +36,9 @@ export interface TerminalActions {
   deleteLedgerEntry(id: number): Promise<Result<unknown>>;
   saveSettlement(input: server.SettlementInput): Promise<Result<unknown>>;
   deleteSettlement(id: number): Promise<Result<unknown>>;
+  saveLimit(input: server.LimitInput & { id?: number }): Promise<Result<unknown>>;
+  cancelLimit(id: number): Promise<Result<unknown>>;
+  executeLimit(id: number, triggerPrice: number): Promise<Result<{ tradeId: number | null; status: string }>>;
 }
 
 /**
@@ -92,6 +95,9 @@ export function useTerminalStore() {
       deleteLedgerEntry: (id) => safe(server.deleteLedgerEntry(id)).then(after),
       saveSettlement: (x) => safe(server.saveSettlement(x)).then(after),
       deleteSettlement: (id) => safe(server.deleteSettlement(id)).then(after),
+      saveLimit: (x) => safe(server.saveLimit(x)).then(after),
+      cancelLimit: (id) => safe(server.cancelLimit(id)).then(after),
+      executeLimit: (id, price) => safe(server.executeLimit(id, price)).then(after),
     };
   }, [reload]);
 

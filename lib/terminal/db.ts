@@ -1,4 +1,4 @@
-import type { Account, LedgerEntry, Settlement, Slab, Trade } from "./types";
+import type { Account, LedgerEntry, LimitOrder, Settlement, Slab, Trade } from "./types";
 
 // Row shapes of the Supabase tables (see supabase/schema.sql) and mappers to
 // the app's camelCase types.
@@ -209,4 +209,44 @@ export const settlementFromRow = (r: SettlementRow): Settlement => ({
   priceDate: r.price_date,
   prices: Object.fromEntries((r.settlement_prices ?? []).map((p) => [p.script, Number(p.price)])),
   sources: Object.fromEntries((r.settlement_prices ?? []).map((p) => [p.script, p.source])),
+});
+
+export interface LimitOrderRow {
+  id: number;
+  order_date: string;
+  segment: LimitOrder["segment"];
+  script: string;
+  option_type: LimitOrder["option"];
+  strike: number;
+  side: LimitOrder["side"];
+  qty: number;
+  limit_price: number;
+  client_code: string;
+  status: LimitOrder["status"];
+  note: string;
+  trade_id: number | null;
+  trigger_price: number | null;
+  executed_at: string | null;
+  user_name: string;
+  created_at: string;
+}
+
+export const limitOrderFromRow = (r: LimitOrderRow): LimitOrder => ({
+  id: r.id,
+  date: r.order_date,
+  segment: r.segment,
+  script: r.script,
+  option: r.option_type,
+  strike: Number(r.strike),
+  side: r.side,
+  qty: r.qty,
+  limitPrice: Number(r.limit_price),
+  clientCode: r.client_code,
+  status: r.status,
+  note: r.note,
+  tradeId: r.trade_id,
+  triggerPrice: r.trigger_price == null ? null : Number(r.trigger_price),
+  executedAt: r.executed_at ? istStamp(r.executed_at) : null,
+  user: r.user_name,
+  createdAt: istStamp(r.created_at),
 });

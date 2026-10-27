@@ -12,8 +12,11 @@ import {
   type AccountRow, type SlabInput, type SlabRow, type TradeInput, type TradeRow,
   ledgerEntryFromRow, ledgerEntryToRow, settlementFromRow,
   type LedgerEntryInput, type LedgerEntryRow, type SettlementRow,
+  limitOrderFromRow, type LimitOrderRow,
 } from "@/lib/terminal/db";
-import type { Account, LedgerEntry, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
+import { addDays, findInstrument, istNow, lotFromQty, openFutLots, valanFor } from "@/lib/terminal/engine";
+import { INSTRUMENTS } from "@/lib/terminal/seed";
+import type { Account, LedgerEntry, LimitOrder, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
 
 export type Result<T = null> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -92,6 +95,17 @@ export async function loadAll(): Promise<Result<TerminalData>> {
     } catch {
       ledgerSetupNeeded = true;
     }
+    // Limit orders (later schema.sql): Day orders past their date expire; load the last 30 days.
+    let limitOrders: LimitOrderRow[] = [];
+    let limitSetupNeeded = false;
+    const today = istNow().date;
+    const expired = await db().from("limit_orders").update({ status: "EXPIRED", note: "Day order not filled" }).eq("status", "PENDING").lt("order_date", today);
+    if (expired.error) limitSetupNeeded = true;
+    else {
+      const { data, error } = await db().from("limit_orders").select("*").gte("order_date", addDays(today, -30)).order("id", { ascending: false }).limit(1000);
+      if (error) limitSetupNeeded = true;
+      else limitOrders = data as LimitOrderRow[];
+    }
     return {
       ok: true,
       data: {
@@ -100,6 +114,8 @@ export async function loadAll(): Promise<Result<TerminalData>> {
         trades: trades.map(tradeFromRow),
         entries: entries.map(ledgerEntryFromRow),
         settlements: settlements.map(settlementFromRow),
+        limitOrders: limitOrders.map(limitOrderFromRow),
+        limitSetupNeeded,
         ledgerSetupNeeded,
       },
     };
@@ -293,4 +309,113 @@ export async function deleteSettlement(id: number): Promise<Result> {
   if (!(await sessionUser())) return NOT_LOGGED_IN;
   const { error } = await db().from("settlements").delete().eq("id", id);
   return error ? { ok: false, error: setupError(error) } : { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// Limit orders (Day)
+// ---------------------------------------------------------------------------
+
+export type LimitInput = Pick<LimitOrder, "segment" | "script" | "option" | "strike" | "side" | "qty" | "limitPrice" | "clientCode">;
+
+const limitSetup = (e: { message: string }) =>
+  /limit_orders/.test(e.message) ? "Limit orders need the database update — run supabase/schema.sql" : e.message;
+
+/** Server copy of the Trade Entry lot-limit check: would this NSEFUT order take the client over Max NSEFUT Lots? */
+async function futLotCheck(clientCode: string, script: string, side: "B" | "S", qty: number, date: string): Promise<string | null> {
+  const { data: acc } = await db().from("accounts").select("max_fut_lots").eq("code", clientCode).maybeSingle();
+  const max = Number((acc as { max_fut_lots?: number } | null)?.max_fut_lots ?? 0);
+  if (!max) return null;
+  const { data, error } = await db().from("trades").select("*").eq("client_code", clientCode).eq("segment", "NSEFUT");
+  if (error) return error.message;
+  const trades = (data as TradeRow[]).map(tradeFromRow);
+  const before = openFutLots(trades, INSTRUMENTS, clientCode, date);
+  const probe: Trade = {
+    id: -1, ot: "T", date, valan: "", segment: "NSEFUT", script, option: "", strike: 0, tradeType: "NRM", side, lot: 0, qty,
+    rate: 0, clientCode, user: "", ip: "", addTime: "",
+  };
+  const after = openFutLots([...trades, probe], INSTRUMENTS, clientCode, date);
+  const f = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  return after > max && after > before ? `${clientCode} limit is ${max} NSEFUT lots — open ${f(before)}, this order would make ${f(after)}` : null;
+}
+
+function validLimit(x: LimitInput): string | null {
+  if (!findInstrument(INSTRUMENTS, x.segment, x.script)) return `Invalid script "${x.script}" for ${x.segment}`;
+  if (!(x.qty > 0) || !Number.isInteger(x.qty)) return "Enter a whole quantity";
+  if (!(x.limitPrice > 0)) return "Enter a limit price";
+  if (x.side !== "B" && x.side !== "S") return "Bad side";
+  return null;
+}
+
+/** Places a Day limit order for today (IST), or with `id` modifies one that is still pending. */
+export async function saveLimit(input: LimitInput & { id?: number }): Promise<Result<LimitOrder>> {
+  const user = await sessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const bad = validLimit(input);
+  if (bad) return { ok: false, error: bad };
+  const today = istNow().date;
+  if (input.segment === "NSEFUT") {
+    const over = await futLotCheck(input.clientCode, input.script, input.side, input.qty, today);
+    if (over) return { ok: false, error: over };
+  }
+  const row = {
+    segment: input.segment, script: input.script, option_type: input.option, strike: input.option ? input.strike : 0,
+    side: input.side, qty: input.qty, limit_price: input.limitPrice, client_code: input.clientCode,
+  };
+  const query = input.id != null
+    ? db().from("limit_orders").update(row).eq("id", input.id).eq("status", "PENDING")
+    : db().from("limit_orders").insert({ ...row, order_date: today, user_name: user });
+  const { data, error } = await query.select().maybeSingle<LimitOrderRow>();
+  if (error) return { ok: false, error: limitSetup(error) };
+  if (!data) return { ok: false, error: "This limit is no longer pending" };
+  return { ok: true, data: limitOrderFromRow(data) };
+}
+
+export async function cancelLimit(id: number): Promise<Result> {
+  if (!(await sessionUser())) return NOT_LOGGED_IN;
+  const { data, error } = await db().from("limit_orders").update({ status: "CANCELLED" }).eq("id", id).eq("status", "PENDING").select("id");
+  if (error) return { ok: false, error: limitSetup(error) };
+  return data?.length ? { ok: true, data: null } : { ok: false, error: "This limit is no longer pending" };
+}
+
+/**
+ * Executes a pending limit (a terminal saw the live price reach it): books a trade at
+ * the limit price, now, for the client. Only one caller can move it out of PENDING, so
+ * two open terminals never create two trades.
+ */
+export async function executeLimit(id: number, triggerPrice: number): Promise<Result<{ tradeId: number | null; status: LimitOrder["status"] }>> {
+  const user = await sessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const now = istNow();
+  const { data: claimed, error } = await db()
+    .from("limit_orders")
+    .update({ status: "EXECUTED", trigger_price: triggerPrice, executed_at: new Date().toISOString() })
+    .eq("id", id).eq("status", "PENDING").eq("order_date", now.date)
+    .select().maybeSingle<LimitOrderRow>();
+  if (error) return { ok: false, error: limitSetup(error) };
+  if (!claimed) return { ok: true, data: { tradeId: null, status: "EXECUTED" } }; // handled by another terminal
+  const o = limitOrderFromRow(claimed);
+  if (o.segment === "NSEFUT") {
+    const over = await futLotCheck(o.clientCode, o.script, o.side, o.qty, now.date);
+    if (over) {
+      await db().from("limit_orders").update({ status: "REJECTED", note: over, executed_at: null }).eq("id", id);
+      return { ok: true, data: { tradeId: null, status: "REJECTED" } };
+    }
+  }
+  const inst = findInstrument(INSTRUMENTS, o.segment, o.script);
+  const { data: trade, error: tErr } = await db()
+    .from("trades")
+    .insert({
+      ...tradeToRow({
+        ot: "O", date: now.date, valan: valanFor(now.date), segment: o.segment, script: o.script, option: o.option, strike: o.strike,
+        tradeType: "NRM", side: o.side, lot: lotFromQty(o.qty, inst?.lotSize ?? 1), qty: o.qty, rate: o.limitPrice, clientCode: o.clientCode,
+      }),
+      user_name: `${o.user || user} (limit)`, ip: await requestIp(),
+    })
+    .select("id").single<{ id: number }>();
+  if (tErr || !trade) {
+    await db().from("limit_orders").update({ status: "PENDING", trigger_price: null, executed_at: null }).eq("id", id);
+    return { ok: false, error: tErr ? friendly(tErr) : "Trade not saved" };
+  }
+  await db().from("limit_orders").update({ trade_id: trade.id }).eq("id", id);
+  return { ok: true, data: { tradeId: trade.id, status: "EXECUTED" } };
 }

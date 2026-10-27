@@ -109,12 +109,38 @@ export interface Settlement {
   sources: Record<string, string>;
 }
 
+export type LimitStatus = "PENDING" | "EXECUTED" | "CANCELLED" | "EXPIRED" | "REJECTED";
+
+/** Day limit order: becomes a trade at `limitPrice` when the live price reaches it. */
+export interface LimitOrder {
+  id: number;
+  date: string; // order (and validity) date
+  segment: Segment;
+  script: string;
+  option: OptionType;
+  strike: number;
+  side: Side;
+  qty: number;
+  limitPrice: number;
+  clientCode: string;
+  status: LimitStatus;
+  note: string; // reason for REJECTED
+  tradeId: number | null;
+  triggerPrice: number | null; // live price that triggered it
+  executedAt: string | null; // "YYYY-MM-DD HH:MM:SS" IST
+  user: string;
+  createdAt: string; // "YYYY-MM-DD HH:MM:SS" IST
+}
+
 export interface TerminalData {
   accounts: Account[];
   slabs: Slab[];
   trades: Trade[];
   entries: LedgerEntry[];
   settlements: Settlement[];
+  limitOrders: LimitOrder[];
+  /** Limit order table missing: run supabase/schema.sql. */
+  limitSetupNeeded?: boolean;
   /** Ledger tables missing: run supabase/schema.sql. */
   ledgerSetupNeeded?: boolean;
 }
