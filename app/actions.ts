@@ -14,7 +14,7 @@ import {
   type LedgerEntryInput, type LedgerEntryRow, type SettlementRow,
   limitOrderFromRow, type LimitOrderRow,
 } from "@/lib/terminal/db";
-import { addDays, findInstrument, istNow, lotFromQty, openFutLots, valanFor } from "@/lib/terminal/engine";
+import { addDays, findInstrument, istNow, lotFromQty, openFutLots, quoteKey, valanFor } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import type { Account, LedgerEntry, LimitOrder, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
 
@@ -315,10 +315,13 @@ export async function deleteSettlement(id: number): Promise<Result> {
 // Limit orders (Day)
 // ---------------------------------------------------------------------------
 
-export type LimitInput = Pick<LimitOrder, "segment" | "script" | "option" | "strike" | "side" | "qty" | "limitPrice" | "clientCode">;
+export type LimitInput = Pick<LimitOrder, "segment" | "script" | "option" | "strike" | "side" | "qty" | "limitPrice" | "clientCode"> & {
+  /** LTP the terminal showed; the server's own live quote is preferred. */
+  ltp?: number | null;
+};
 
 const limitSetup = (e: { message: string }) =>
-  /limit_orders/.test(e.message) ? "Limit orders need the database update — run supabase/schema.sql" : e.message;
+  /limit_orders|ref_price/.test(e.message) ? "Limit orders need the database update — run supabase/schema.sql" : e.message;
 
 /** Server copy of the Trade Entry lot-limit check: would this NSEFUT order take the client over Max NSEFUT Lots? */
 async function futLotCheck(clientCode: string, script: string, side: "B" | "S", qty: number, date: string): Promise<string | null> {
@@ -357,9 +360,19 @@ export async function saveLimit(input: LimitInput & { id?: number }): Promise<Re
     const over = await futLotCheck(input.clientCode, input.script, input.side, input.qty, today);
     if (over) return { ok: false, error: over };
   }
+  // Touch-style: remember where the LTP is now, so the order waits for the price to come to the limit.
+  let ref = Number(input.ltp) > 0 ? Number(input.ltp) : null;
+  try {
+    const key = quoteKey({ segment: input.segment, script: input.script, option: input.option, strike: input.strike });
+    const q = (await getQuotes([key])).quotes[key];
+    if (q && q.ltp > 0) ref = q.ltp;
+  } catch {
+    // live quote unavailable: keep the terminal's LTP
+  }
+  if (ref == null) return { ok: false, error: "No live price for this contract — a limit needs the current LTP" };
   const row = {
     segment: input.segment, script: input.script, option_type: input.option, strike: input.option ? input.strike : 0,
-    side: input.side, qty: input.qty, limit_price: input.limitPrice, client_code: input.clientCode,
+    side: input.side, qty: input.qty, limit_price: input.limitPrice, ref_price: ref, client_code: input.clientCode,
   };
   const query = input.id != null
     ? db().from("limit_orders").update(row).eq("id", input.id).eq("status", "PENDING")

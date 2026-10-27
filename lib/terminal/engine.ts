@@ -425,12 +425,13 @@ export function marketOpen(segment: Segment, at = new Date()): boolean {
   return weekday >= 1 && weekday <= 5 && time >= open && time < close;
 }
 
-/** True when a live quote reaches a limit: BUY when ask (else LTP) ≤ limit, SELL when bid (else LTP) ≥ limit. */
-export function limitReached(side: Side, limit: number, q: { ltp: number; bid: number | null; ask: number | null }): number | null {
-  if (side === "B") {
-    const p = q.ask && q.ask > 0 ? q.ask : q.ltp;
-    return p > 0 && p <= limit ? p : null;
-  }
-  const p = q.bid && q.bid > 0 ? q.bid : q.ltp;
-  return p > 0 && p >= limit ? p : null;
+/**
+ * Touch-style limit: the order waits until the LTP comes to the limit price from the
+ * side it was on when placed — rises to it (LTP at placement below the limit) or falls
+ * to it (above). Buy or sell alike; returns the LTP that touched, else null.
+ */
+export function limitTouched(o: { side: Side; limitPrice: number; refPrice: number | null }, ltp: number): number | null {
+  if (!(ltp > 0)) return null;
+  const rising = o.refPrice != null ? o.refPrice <= o.limitPrice : o.side === "S";
+  return rising ? (ltp >= o.limitPrice ? ltp : null) : (ltp <= o.limitPrice ? ltp : null);
 }

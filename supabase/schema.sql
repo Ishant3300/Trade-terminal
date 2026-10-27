@@ -167,5 +167,8 @@ create table if not exists public.limit_orders (
   user_name text not null default '',
   created_at timestamptz not null default now()
 );
+-- LTP when the order was placed / modified: the limit executes when the LTP
+-- touches the limit price coming from that side (rises to it or falls to it).
+alter table public.limit_orders add column if not exists ref_price numeric(14, 4);
 alter table public.limit_orders enable row level security;
 revoke all on public.limit_orders from anon, authenticated;

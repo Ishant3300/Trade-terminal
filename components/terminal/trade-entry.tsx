@@ -220,13 +220,14 @@ export function TradeEntry({
       setSaving(true);
       const res = await actions.saveLimit({
         id: editingLimitId ?? undefined, segment: draft.segment, script: draft.script, option: draft.option, strike: draft.strike,
-        side: draft.side, qty, limitPrice: rate, clientCode: account.code,
+        side: draft.side, qty, limitPrice: rate, clientCode: account.code, ltp: tick?.ltp ?? null,
       });
       setSaving(false);
       if (!res.ok) return fail(`Limit not placed: ${res.error}`);
+      const ref = (res.data as LimitOrder).refPrice;
       setMessage({
         ok: true,
-        text: `${editingLimitId != null ? "Limit modified" : "Limit placed"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${contractLabel(draft)} @ ${fmt2(rate)} — ${account.code} ${account.name} · pending, executes when ${form.side === "B" ? "ask ≤" : "bid ≥"} ${fmt2(rate)}`,
+        text: `${editingLimitId != null ? "Limit modified" : "Limit placed"}: ${form.side === "B" ? "BUY" : "SELL"} ${fmt0(qty)} ${contractLabel(draft)} @ ${fmt2(rate)} — ${account.code} ${account.name} · pending, executes when the LTP ${ref != null && ref > rate ? "falls" : "rises"} to ${fmt2(rate)} (LTP now ${ref != null ? fmt2(ref) : "—"})`,
       });
       setEditingLimitId(null);
       setForm((f) => ({ ...f, lot: "", qty: "", rate: "" }));

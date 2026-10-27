@@ -221,6 +221,7 @@ export interface LimitOrderRow {
   side: LimitOrder["side"];
   qty: number;
   limit_price: number;
+  ref_price?: number | null;
   client_code: string;
   status: LimitOrder["status"];
   note: string;
@@ -241,6 +242,7 @@ export const limitOrderFromRow = (r: LimitOrderRow): LimitOrder => ({
   side: r.side,
   qty: r.qty,
   limitPrice: Number(r.limit_price),
+  refPrice: r.ref_price == null ? null : Number(r.ref_price),
   clientCode: r.client_code,
   status: r.status,
   note: r.note,

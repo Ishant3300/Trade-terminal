@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { contractLabel, fmt0, fmt2, istNow, limitReached, marketOpen, quoteKey } from "@/lib/terminal/engine";
+import { contractLabel, fmt0, fmt2, istNow, limitTouched, marketOpen, quoteKey } from "@/lib/terminal/engine";
 import type { TerminalData } from "@/lib/terminal/types";
 import { useLiveQuotes } from "./quotes";
 import type { TerminalActions } from "./store";
@@ -22,7 +22,7 @@ export function LimitWatcher({ data, actions }: { data: TerminalData; actions: T
     for (const o of pending) {
       const q = feed.quotes[quoteKey(o)];
       if (!q || inFlight.current.has(o.id) || !marketOpen(o.segment)) continue;
-      const hit = limitReached(o.side, o.limitPrice, q);
+      const hit = limitTouched(o, q.ltp);
       if (hit == null) continue;
       inFlight.current.add(o.id);
       const what = `${o.side === "B" ? "BUY" : "SELL"} ${fmt0(o.qty)} ${contractLabel(o)} @ ${fmt2(o.limitPrice)} — ${o.clientCode}`;
@@ -32,7 +32,7 @@ export function LimitWatcher({ data, actions }: { data: TerminalData; actions: T
           : res.data.status === "REJECTED"
             ? { ok: false, text: `Limit rejected (lot limit): ${what}` }
             : res.data.tradeId != null
-              ? { ok: true, text: `Limit executed: ${what} (live ${fmt2(hit)}) → trade #${res.data.tradeId}` }
+              ? { ok: true, text: `Limit executed: ${what} (LTP ${fmt2(hit)}) → trade #${res.data.tradeId}` }
               : null;
         if (note) setNotices((n) => [{ id: o.id, ...note }, ...n].slice(0, 3));
         if (!res.ok) setTimeout(() => inFlight.current.delete(o.id), 10_000); // retry later

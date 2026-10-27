@@ -36,7 +36,7 @@ export function LimitOrders({ data, actions, onModify }: { data: TerminalData; a
     <div className="tt-card">
       <div className="tt-card-h">
         <span>Limit Orders — {today.split("-").reverse().join("-")}</span>
-        <span className="tt-muted" style={{ fontWeight: 400 }}>Day orders · execute at the limit price when the live price reaches it (terminal must be open)</span>
+        <span className="tt-muted" style={{ fontWeight: 400 }}>Day orders · execute at the limit price when the LTP touches it, rising or falling from where it was when placed (terminal must be open)</span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           {(["ALL", "PENDING", "EXECUTED", "CANCELLED", "REJECTED"] as const).map((s) => (
             <button key={s} type="button" className={`tt-btn tt-btn-xs${show === s ? " tt-btn-blue" : ""}`} onClick={() => setShow(s)}>
@@ -54,14 +54,15 @@ export function LimitOrders({ data, actions, onModify }: { data: TerminalData; a
           <thead>
             <tr>
               <th>Placed</th><th>Customer Name</th><th>Segment</th><th>Script Name</th><th>B/S</th><th className="num">Quantity</th>
-              <th className="num">Limit Price</th><th className="num">Live</th><th>Status</th><th className="ctr">Actions</th>
+              <th className="num">Limit Price</th><th className="num">LTP</th><th>Status</th><th className="ctr">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((o) => {
               const q = feed.quotes[quoteKey(o)];
-              const live = q ? (o.side === "B" ? q.ask ?? q.ltp : q.bid ?? q.ltp) : null;
-              const away = live ? ((o.side === "B" ? live - o.limitPrice : o.limitPrice - live) / o.limitPrice) * 100 : null;
+              const live = q && q.ltp > 0 ? q.ltp : null;
+              const rising = o.refPrice != null ? o.refPrice <= o.limitPrice : o.side === "S";
+              const away = live ? (Math.abs(live - o.limitPrice) / o.limitPrice) * 100 : null;
               const st = STATUS_STYLE[o.status];
               return (
                 <tr key={o.id} className={o.side === "B" ? "buy" : "sell"}>
@@ -78,7 +79,8 @@ export function LimitOrders({ data, actions, onModify }: { data: TerminalData; a
                   <td>
                     <span style={{ background: st.bg, color: st.fg, padding: "1px 8px", borderRadius: 3, fontWeight: 600 }} title={o.note}>
                       {st.label}
-                      {o.status === "PENDING" && away != null && ` · ${Math.max(0, away).toFixed(2)}% away`}
+                      {o.status === "PENDING" && ` · waits for LTP to ${rising ? "rise ↑" : "fall ↓"}`}
+                      {o.status === "PENDING" && away != null && ` ${away.toFixed(2)}% away`}
                       {o.status === "EXECUTED" && o.executedAt && ` ${o.executedAt.slice(11)}`}
                     </span>
                     {o.status === "EXECUTED" && o.tradeId != null && <span className="tt-muted"> → trade #{o.tradeId}</span>}

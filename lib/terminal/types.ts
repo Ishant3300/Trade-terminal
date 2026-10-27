@@ -122,6 +122,8 @@ export interface LimitOrder {
   side: Side;
   qty: number;
   limitPrice: number;
+  /** LTP when placed / modified: executes when the LTP rises (ref < limit) or falls (ref > limit) to the limit. */
+  refPrice: number | null;
   clientCode: string;
   status: LimitStatus;
   note: string; // reason for REJECTED
