@@ -426,6 +426,18 @@ export function marketOpen(segment: Segment, at = new Date()): boolean {
 }
 
 /**
+ * Why a Day limit can no longer execute today for this segment (market closed for the day
+ * or weekend), else null. Before the open it is still allowed: it starts checking at the open.
+ */
+export function limitBlockedReason(segment: Segment, at = new Date()): string | null {
+  const { time, weekday } = istNow(at);
+  const [, close] = SESSION[segment];
+  if (weekday === 0 || weekday === 6) return `Market closed today (weekend) — a Day limit can't execute`;
+  if (time >= close) return `${segment} market closed at ${close} — a Day limit can't execute today`;
+  return null;
+}
+
+/**
  * Touch-style limit: the order waits until the LTP comes to the limit price from the
  * side it was on when placed — rises to it (LTP at placement below the limit) or falls
  * to it (above). Buy or sell alike; returns the LTP that touched, else null.

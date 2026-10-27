@@ -14,7 +14,7 @@ import {
   type LedgerEntryInput, type LedgerEntryRow, type SettlementRow,
   limitOrderFromRow, type LimitOrderRow,
 } from "@/lib/terminal/db";
-import { addDays, findInstrument, istNow, lotFromQty, openFutLots, quoteKey, valanFor } from "@/lib/terminal/engine";
+import { addDays, findInstrument, istNow, limitBlockedReason, lotFromQty, openFutLots, quoteKey, valanFor } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
 import type { Account, LedgerEntry, LimitOrder, Settlement, Slab, TerminalData, Trade } from "@/lib/terminal/types";
 
@@ -353,7 +353,7 @@ function validLimit(x: LimitInput): string | null {
 export async function saveLimit(input: LimitInput & { id?: number }): Promise<Result<LimitOrder>> {
   const user = await sessionUser();
   if (!user) return NOT_LOGGED_IN;
-  const bad = validLimit(input);
+  const bad = validLimit(input) ?? limitBlockedReason(input.segment);
   if (bad) return { ok: false, error: bad };
   const today = istNow().date;
   if (input.segment === "NSEFUT") {

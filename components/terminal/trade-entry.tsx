@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
-  computeTradeCalcs, contractLabel, fmt2, fmt0, fmtDate, fmtLots, findInstrument, istNow, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
+  computeTradeCalcs, contractLabel, fmt2, fmt0, fmtDate, fmtLots, findInstrument, istNow, limitBlockedReason, findListed, instrumentKey, openFutLots, quoteKey, lotFromQty, snapQty,
   toDateStr, toTimeStr, valanFor, type TradeCalc,
 } from "@/lib/terminal/engine";
 import { INSTRUMENTS } from "@/lib/terminal/seed";
@@ -217,6 +217,8 @@ export function TradeEntry({
 
     if (isLimit) {
       if (form.date !== istNow().date) return fail("Limit orders are Day orders — set Date to today", dateRef.current);
+      const closed = limitBlockedReason(form.segment);
+      if (closed) return fail(closed);
       setSaving(true);
       const res = await actions.saveLimit({
         id: editingLimitId ?? undefined, segment: draft.segment, script: draft.script, option: draft.option, strike: draft.strike,
