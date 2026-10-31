@@ -125,15 +125,16 @@ export async function buildLedgerPdf(input: LedgerPdfInput) {
     footStyles: { fillColor: [228, 232, 238], textColor: INK, fontStyle: "bold", fontSize: 9, lineWidth: 0 },
     alternateRowStyles: { fillColor: [250, 251, 253] },
     columnStyles: {
-      0: { cellWidth: 22 },
+      // Amount columns sized for crores (e.g. "12,34,56,789.00 Dr") so figures never wrap.
+      0: { cellWidth: 21 },
       1: { cellWidth: "auto" },
-      2: { cellWidth: 22, halign: "right" },
-      3: { cellWidth: 22, halign: "right" },
-      4: { cellWidth: 28, halign: "right" },
-      5: { cellWidth: 25, halign: "right" },
-      6: { cellWidth: 26, halign: "right", fontStyle: "bold" },
-      7: { cellWidth: 14, halign: "right" },
-      8: { cellWidth: 21, halign: "right" },
+      2: { cellWidth: 27, halign: "right" },
+      3: { cellWidth: 27, halign: "right" },
+      4: { cellWidth: 31, halign: "right" },
+      5: { cellWidth: 27, halign: "right" },
+      6: { cellWidth: 27, halign: "right", fontStyle: "bold" },
+      7: { cellWidth: 12, halign: "right" },
+      8: { cellWidth: 26, halign: "right" },
     },
     didParseCell: (data) => {
       if (data.section === "head" && data.column.index >= 2) data.cell.styles.halign = "right";
