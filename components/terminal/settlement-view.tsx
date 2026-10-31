@@ -74,7 +74,8 @@ function MonthlySettlement({ data, calcs, actions }: Props) {
   const months = useMemo(() => {
     const set = new Set<string>();
     for (const t of data.trades) if (t.segment === "NSEEQ") set.add(t.date.slice(0, 7));
-    return [...set].filter((m) => monthEnd(m) <= today) // the billing day itself counts.sort().reverse();
+    // A month can be settled on its last day (the billing day) or later.
+    return [...set].filter((m) => monthEnd(m) <= today).sort().reverse();
   }, [data.trades, today]);
   const [month, setMonth] = useState(months[0] ?? "");
   const end = month ? monthEnd(month) : "";
